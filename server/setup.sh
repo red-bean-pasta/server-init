@@ -402,16 +402,6 @@ EnsureInstalled(){
 }
 
 
-CheckIfInstalled(){
-    if $2 >/dev/null 2>&1; then
-        Typing "$1 is already installed"
-        return 0
-    fi
-    Typing "$1 is not installed"
-    return 1
-}
-
-
 Disable(){
     local s; for s in "$@"; do
         Log "Disabling $s"

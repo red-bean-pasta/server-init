@@ -49,7 +49,7 @@ Main(){
     ChangeHostname
     echo
 
-    ChangeTimezone
+    ChangeTimezone || true
     echo
     CheckTimeSync
     echo

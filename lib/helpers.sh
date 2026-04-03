@@ -15,6 +15,17 @@ CheckIfRoot(){
 }
 
 
+CheckIfInstalled(){
+	local command=${2:-"command -v $1"}
+    if $command >/dev/null 2>&1; then
+        Typing "$1 is already installed"
+        return 0
+    fi
+    Typing "$1 is not installed"
+    return 1
+}
+
+
 CheckIfTyping(){
 	[[ -n "${TYPING:-}" ]] && [[ $TYPING == "true" || $TYPING == "false" ]] && return 0
 	local answer; read -rp "Do you wish to enable ${Y}typing effect${I} to improve readability and interactivity?: " answer
