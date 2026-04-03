@@ -12,7 +12,7 @@ This project is still experimental and under active testing and development.
 - **Transparent** — actions are logged and reversible
 - **Multi-platform** — supports launching from Linux, macOS and Windows
 - **Multi-staged** - separates survey, setup and recovery phases
-- **Privacy** - passwords are not displayed during input. SSH keys are generated locally and only public keys are transferred. 
+- **Privacy** - passwords are not displayed during input. SSH keys are generated locally and only public keys are transferred
 
 ## Supported setup tasks
 - Install and enable sudo

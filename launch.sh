@@ -4,7 +4,7 @@ set -eu -o pipefail
 
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/helpers.sh
-source "$Script_Dir/helpers.sh"
+source "$Script_Dir/lib/helpers.sh"
 
 
 Timestamp=$(date -u +"%Y%m%dT%H%M")
@@ -228,6 +228,7 @@ CopyPrivateKeys(){
 CleanUp(){
 	Log "Performing restoration and cleanup..."
 
+	ssh -S "$Ssh_Socket" -O exit -p "$Port" "$User@$Host" 2>/dev/null || true
 	RemoveDirectory "$Tmp_Dir"
 	Log "Removed $Tmp_Dir where SSH ControlMaster socket and keys temporarily live"
 
