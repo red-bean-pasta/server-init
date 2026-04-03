@@ -14,7 +14,7 @@ ToUndo="$Script_Dir/toundo"
 
 
 Main(){
-    trap StartRecoveryTimer EXIT INT TERM HUP 
+    trap OnExit EXIT INT TERM HUP 
 
     InitializeSystemInfo
     echo
@@ -31,6 +31,13 @@ Main(){
     done
 
     echo "$SSH_PORT" > "$1"
+}
+
+
+OnExit(){
+	local exit_code=$?
+    StartRecoveryTimer
+	exit "$exit_code"
 }
 
 

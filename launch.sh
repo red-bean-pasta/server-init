@@ -226,6 +226,7 @@ CopyPrivateKeys(){
 
 
 CleanUp(){
+	local exit_code=$?
 	Log "Performing restoration and cleanup..."
 
 	ssh -S "$Ssh_Socket" -O exit -p "$Port" "$User@$Host" 2>/dev/null || true
@@ -233,6 +234,7 @@ CleanUp(){
 	Log "Removed $Tmp_Dir where SSH ControlMaster socket and keys temporarily live"
 
 	Log "Everything cleaned up"
+	exit "$exit_code"
 }
 
 

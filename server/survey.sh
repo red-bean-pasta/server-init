@@ -79,8 +79,10 @@ Main(){
 
 
 CleanUp(){
+	local exit_code=$?
     Log "Cleaning up folder on server..." # May not show up in TTY as SSH is already detached
     RemoveDirectory "$Script_Dir"
+	exit "$exit_code"
 }
 
 
