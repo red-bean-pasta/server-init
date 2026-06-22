@@ -244,7 +244,7 @@ DisableRootLogin(){
 
 ### Packages
 UpdatePackages(){
-    AddUodo NotifyPackagesUpdated
+    AddUndo NotifyPackagesUpdated
     if $Update_Cmd; then
         Log "${G}All packages successfully updated${I}"
     else

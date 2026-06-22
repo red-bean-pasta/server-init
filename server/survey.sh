@@ -313,7 +313,7 @@ EnablePublicKeyAuthentication(){
 DisablePasswordLogin(){
     Typing "It's suggested to ${Y}disable password login${I} completely to minimize the risk of brute-force or dictionary attack"
     
-    ValidateFlag --disable-password && AddTodo DisablePasswordLogin
+    SlientValidateFlag --disable-password && AddTodo DisablePasswordLogin
 
     DoIfInteractive InteractiveDisablePasswordLogin
 }
@@ -328,7 +328,7 @@ DisableRootLogin(){
     Typing "It's suggested to ${Y}disable root login${I}, especially if password auth haven't been disabled. You can still switch to root user from normal user with command \`su\`"
     Typing "Technically you can keep root login if password login is disabled, but since operating as normal users is advised, so..."
 
-    ValidateFlag --disable-root && AddTodo DisableRootLogin
+    SlientValidateFlag --disable-root && AddTodo DisableRootLogin
 
     DoIfInteractive InteractiveDisableRootLogin
 }
@@ -343,7 +343,7 @@ InteractiveDisableRootLogin(){
 UpdatePackages(){
     Typing "The system from your server provider may often be less up-to-date. It's recommended to ${Y}update all of them${I} especially if there are security patches"
     
-    ValidateFlag --update && AddTodo UpdatePackages
+    SlientValidateFlag --update && AddTodo UpdatePackages
 
     DoIfInteractive InteractiveUpdatePackages
 }
@@ -361,9 +361,9 @@ InstallFirewall(){
     Typing "${G}UFW${I} stands for Uncomplicated Firewall. It's a simple yet user-friendly firewall tool built on iptables. It's shipped with Ubuntu"
     Typing "${G}Firewalld${I} is powerful yet more complex comparing to UFW. It's built-in in RHEL-based distros like Fedora or CentOS"
 
-    ValidateFlag --ufw && AddTodo SetUpUfw
-    ValidateFlag --firewalld && AddTodo SetUpFirewalld
-    ValidateFlag --nftables && AddTodo SetUpNftables
+    SlientValidateFlag --ufw && AddTodo SetUpUfw
+    SlientValidateFlag --firewalld && AddTodo SetUpFirewalld
+    SlientValidateFlag --nftables && AddTodo SetUpNftables
 
     DoIfInteractive InteractiveInstallFirewall
 }
@@ -389,7 +389,7 @@ InstallFail2Ban(){
     Typing "It has rich and powerful features like increment fail time randomly, send mails and report malicious IP. Many of them require manual setup, but it still works out of box with default protection over many protocols, including SSH"
     Typing "However, it's not strictly neccessary, especially if password auth is already disabled"
 
-    ValidateFlag --fail2ban && AddTodo SetUpFail2Ban
+    SlientValidateFlag --fail2ban && AddTodo SetUpFail2Ban
 
     DoIfInteractive InteractiveInstallFail2Ban
 }
@@ -428,6 +428,10 @@ GetPasswordAndHash(){
     openssl passwd -6 "$password"
 }
 
+
+SlientValidateFlag(){
+    ValidateFlag "$@" >/dev/null
+}
 
 ValidateFlag(){
     local flag=$1; local min=${2:-0}; local max=${3:-$min}

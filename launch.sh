@@ -24,36 +24,42 @@ Pass options to run in automated mode, else interactive mode
 Options:
     -h, --help
         Show help message
-    --host
-        Server address
-    --port
-        SSH Port to connect to
-    --user [username] [password_hash] [if_create_home] [if_sudo_group] [shell] 
-        Create new user. Password should be hashed with SHA-512 algorithm. Be sure to single quote the password
-    --more-users
-        Add more users in interactive mode
-    --root-password [password_hash]
-        Change root password. Password should be hashed with SHA-512 algorithm. Be sure to single quote it
-    --hostname [new_hostname] 
-        Change hostname
-    --timezone [new_timezone]
-        Change timezone
-    --new-port [new_port]
-        Change the SSH port
-    --disable-password 
-        Disable SSH password login
-    --disable-root
-        Disable SSH root login
-    --update
-        Perform system packages update
-    --ufw
-        Install and set up UFW. Conflicts with --firewalld and --nftables. May require --update
-	--firewalld
-		Install and set up Firewalld. Conflicts with --ufw and --nftables. May require --update
-	--nftables
-		Install and set up Nftables. Conflicts with --ufw and --firewalld. May require --update
-    --fail2ban
-        Install and set up Fail2Ban. May require --update
+    --typing
+        Enable typing effect for terminal output. Default to false if any automation argument is provided
+
+    Connection options:
+        --host
+            Server address
+        --port
+            SSH Port to connect to
+
+    Remote automation options:
+        --user [username] [password_hash] [if_create_home] [if_sudo_group] [shell] 
+            Create new user. Password should be hashed with SHA-512 algorithm. Be sure to single quote the password
+        --more-users
+            Add more users in interactive mode
+        --root-password [password_hash]
+            Change root password. Password should be hashed with SHA-512 algorithm. Be sure to single quote it
+        --hostname [new_hostname] 
+            Change hostname
+        --timezone [new_timezone]
+            Change timezone
+        --new-port [new_port]
+            Change the SSH port
+        --disable-password 
+            Disable SSH password login
+        --disable-root
+            Disable SSH root login
+        --update
+            Perform system packages update
+        --ufw
+            Install and set up UFW. Conflicts with --firewalld and --nftables. May require --update
+        --firewalld
+            Install and set up Firewalld. Conflicts with --ufw and --nftables. May require --update
+        --nftables
+            Install and set up Nftables. Conflicts with --ufw and --firewalld. May require --update
+        --fail2ban
+            Install and set up Fail2Ban. May require --update
 EOF
 }
 
@@ -87,6 +93,8 @@ ParseArgs(){
 		case "$1" in
 			-h | --help)
 				PrintHelp; exit;;
+            --typing)
+                TYPING=true; shift;;
 			--host)
 				Host="$2"; shift 2 ;;
 			--port)
