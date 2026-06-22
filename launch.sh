@@ -35,11 +35,11 @@ Options:
 
     Remote automation options:
         --user [username] [password_hash] [if_create_home] [if_sudo_group] [shell] 
-            Create new user. Password should be hashed with SHA-512 algorithm. Be sure to single quote the password
+            Create new user. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote the password as it may contain special characters
         --more-users
             Add more users in interactive mode
         --root-password [password_hash]
-            Change root password. Password should be hashed with SHA-512 algorithm. Be sure to single quote it
+            Change root password. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote it
         --hostname [new_hostname] 
             Change hostname
         --timezone [new_timezone]
@@ -103,6 +103,10 @@ ParseArgs(){
 				Setup_Args+=("$1"); shift;;
 		esac
 	done
+
+	if [[ ! ${TYPING:-} ]] && (( ${#Setup_Args[@]} > 0 )); then
+		TYPING=false
+	fi
 }
 
 
