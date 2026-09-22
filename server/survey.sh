@@ -4,7 +4,7 @@ set -eu -o pipefail
 
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/helpers.sh
-source "$Script_Dir/helpers.sh" 
+source "$Script_Dir/helpers.sh"
 # shellcheck source=./common.sh
 source "$Script_Dir/common.sh"
 
@@ -103,13 +103,30 @@ InitializeSystemInfo(){
 
 
 ### User managements
+ValidateUsername(){
+    local username=$1
+    if [[ ! $username =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+        Typing -e "Invalid username '$username'. Use lowercase letters, numbers, underscore, and hyphen; start with a letter or underscore"
+        return 1
+    elif id "$username" >/dev/null 2>&1; then
+        Typing -e "User '$username' already exists. Skipping..."
+        return 1
+    elif grep -qE "^$username:" /etc/group; then
+        Typing -w "There is already an group with the same name '$username'. While this is technically allowed, to avoid future confusion and conflicts, let's try some other names"
+        return 1
+    fi
+}
+
+
 AddUsers(){
     Typing "It's often ${Y}discouraged to operate as root user${I}. Root user has the utmost power and can easily cause unintentional harm. Meanwhile, normal user is intentionally restricted, effectively protecting the system. Normal user can still gain admin priviledge with the help of 'sudo', which means 'superuser do'"
     Typing "That being said, let's ${Y}create some normal users!${I}"
 
     local index; if index=$(ValidateFlag --user 5); then
+        local username=${Args[index+1]}
+        ValidateUsername "$username" || return 1
         AddTodo AddUser "${Args[@]:(($index+1)):5}" # [username] [password_hash] [if_create_home] [if_sudo_group] [shell] 
-        New_Users+=("${Args[index+1]}")
+        New_Users+=("$username")
     fi
 
     if $Interactive || [[ -n ${Flag_Indexes[--more-users]:-} ]]; then
@@ -123,11 +140,7 @@ InteractiveAddUser(){
     while $more; do
         local username; username=$(PromptForAnswer "Give the uew user a name (blank space not allowed, use underscore instead): ")
         username=${username// /_}
-        if id "$username" >/dev/null 2>&1; then
-            Typing -e "User '$username' already exists. Skipping..."
-            continue
-        elif grep -qE "^$username:" /etc/group; then
-            Typing -w "There is already an group with the same name '$username'. While this is technically allowed, to avoid future confusion and conflicts, let's try some other names"
+        if ! ValidateUsername "$username"; then
             continue
         fi
         
@@ -204,16 +217,35 @@ ChangeHostname(){
     Typing "You can ${Y}give the system a name${I}. It may help with identification. It also looks nicer"
     Typing "Your current hostname is $(GetCurrentHostname)"
     
-    local index; index=$(ValidateFlag --hostname 1) && AddTodo ChangeHostname "$(GetCurrentHostname)" "${Args[index+1]}"
+    local index; if index=$(ValidateFlag --hostname 1); then
+        if ValidateHostname "${Args[index+1]}"; then
+            AddTodo ChangeHostname "$(GetCurrentHostname)" "${Args[index+1]}"
+        else
+            return 1
+        fi
+    fi
 
     DoIfInteractive InteractiveChangeHostname
 }
 
 
+ValidateHostname(){
+    [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || Typing -e "Invalid hostname: $1"
+}
+
+
 InteractiveChangeHostname(){
-    local new; new=$(PromptForAnswer "Have a better name in mind (Blank space is not allowed and underscore should be used. Return to skip changing)?: ")
-    new=${new// /_}
-    AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
+    local new
+    while true; do
+        new=$(PromptForAnswer "Have a better name in mind (Blank space is not allowed and underscore should be used. Return to skip changing)?: ")
+        new=${new// /_}
+        [[ -z $new ]] && return 0
+        if ValidateHostname "$new"; then
+            AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
+            return 0
+        fi
+        Typing "Invalid hostname. Let's try again"
+    done
 }
 
 
@@ -261,7 +293,7 @@ InteractiveChangeTimezone(){
 
 CheckTimeSync(){
     Typing "It's also important to have correct ${Y}timekeeping${I} so it doesn't drift away. ${Y}Let's have a fast check${I}..."
-    if timedatectl show | grep -E 'NTPSynchronized|TimeUSec' || pgrep 'chronyd|ntpd|openntpd'; then
+    if CheckIfTimeSynchronized; then
         Typing "${G}The system has timekeeping set up${I}"
     else
         Typing -e "No NTP process found. You may wanna troubleshoot manually later"
@@ -283,7 +315,15 @@ ChangeSshPort(){
     Typing "Don't worry. Changing the port won't interrupt this connection until SSH servic is restarted"
     Typing "Current: $(cat /etc/ssh/sshd_config | grep -w Port)"
 
-    local index; index=$(ValidateFlag --new-port 1) && AddTodo ChangeSshPort "${Args[index+1]}"
+    local index; if index=$(ValidateFlag --new-port 1); then
+        local new_port=${Args[index+1]}
+        if CheckIfValidPort "$new_port"; then
+            AddTodo ChangeSshPort "$new_port"
+        else
+            Log -e "Invalid SSH port: $new_port"
+            exit 1
+        fi
+    fi
 
     DoIfInteractive InteractiveChangeSshPort
 }
@@ -294,7 +334,7 @@ InteractiveChangeSshPort(){
         port=$(PromptForAnswer "Change it to (Return to skip)?: ")
         if [[ -z $port ]]; then
             break
-        elif [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 0 ] && [ "$port" -le 65535 ]; then
+        elif CheckIfValidPort "$port"; then
             AddTodo ChangeSshPort "$port"
             break
         else 
@@ -335,7 +375,7 @@ DisableRootLogin(){
 
 
 InteractiveDisableRootLogin(){
-    PromptForYesNo "Disable it? (Y/n): " Y && AddTodo DisablePasswordLogin
+    PromptForYesNo "Disable it? (Y/n): " Y && AddTodo DisableRootLogin
 }
     
 
@@ -407,7 +447,8 @@ ScheduleReloadSsh(){
 
 ### Helpers
 AddTodo(){
-    echo "$@" >> "$Todo"
+    printf '%q ' "$@" >> "$Todo"
+    printf '\n' >> "$Todo"
     Log "Todo item added: $*"
 }
 

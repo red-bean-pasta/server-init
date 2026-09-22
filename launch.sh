@@ -7,7 +7,7 @@ Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$Script_Dir/lib/helpers.sh"
 
 
-Timestamp=$(date -u +"%Y%m%dT%H%M")
+Timestamp=$(date -u +"%Y%m%dT%H%M%S")
 Tmp_Dir=$(mktemp -d /tmp/dir.XXXXXX); chmod 700 "$Tmp_Dir"
 Ssh_Socket=$(mktemp -u "$Tmp_Dir/sock.XXXXXX") # To ensure compatibility with the v3.2 Bash on MacOS
 Remote_Dir=$(mktemp -du /tmp/dir.XXXXXX)
@@ -27,39 +27,39 @@ Options:
     --typing
         Enable typing effect for terminal output. Default to false if any automation argument is provided
 
-    Connection options:
-        --host
-            Server address
-        --port
-            SSH Port to connect to
+Connection options:
+	--host
+		Server address
+	--port
+		SSH Port to connect to
 
-    Remote automation options:
-        --user [username] [password_hash] [if_create_home] [if_sudo_group] [shell] 
-            Create new user. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote the password as it may contain special characters
-        --more-users
-            Add more users in interactive mode
-        --root-password [password_hash]
-            Change root password. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote it
-        --hostname [new_hostname] 
-            Change hostname
-        --timezone [new_timezone]
-            Change timezone
-        --new-port [new_port]
-            Change the SSH port
-        --disable-password 
-            Disable SSH password login
-        --disable-root
-            Disable SSH root login
-        --update
-            Perform system packages update
-        --ufw
-            Install and set up UFW. Conflicts with --firewalld and --nftables. May require --update
-        --firewalld
-            Install and set up Firewalld. Conflicts with --ufw and --nftables. May require --update
-        --nftables
-            Install and set up Nftables. Conflicts with --ufw and --firewalld. May require --update
-        --fail2ban
-            Install and set up Fail2Ban. May require --update
+Remote automation options:
+	--user [username] [password_hash] [if_create_home] [if_sudo_group] [shell]
+		Create new user. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote the password as it may contain special characters
+	--more-users
+		Add more users in interactive mode
+	--root-password [password_hash]
+		Change root password. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote it
+	--hostname [new_hostname]
+		Change hostname
+	--timezone [new_timezone]
+		Change timezone
+	--new-port [new_port]
+		Change the SSH port
+	--disable-password
+		Disable SSH password login
+	--disable-root
+		Disable SSH root login
+	--update
+		Perform system packages update
+	--ufw
+		Install and set up UFW. Conflicts with --firewalld and --nftables. May require --update
+	--firewalld
+		Install and set up Firewalld. Conflicts with --ufw and --nftables. May require --update
+	--nftables
+		Install and set up Nftables. Conflicts with --ufw and --firewalld. May require --update
+	--fail2ban
+		Install and set up Fail2Ban. May require --update
 EOF
 }
 
@@ -93,11 +93,13 @@ ParseArgs(){
 		case "$1" in
 			-h | --help)
 				PrintHelp; exit;;
-            --typing)
-                TYPING=true; shift;;
+			--typing)
+				TYPING=true; shift;;
 			--host)
+				[[ $# -ge 2 ]] || { Typing -e "Missing value for --host"; exit 1; }
 				Host="$2"; shift 2 ;;
 			--port)
+				[[ $# -ge 2 ]] || { Typing -e "Missing value for --port"; exit 1; }
 				Port="$2"; shift 2 ;;
 			*)
 				Setup_Args+=("$1"); shift;;
@@ -119,7 +121,14 @@ PromptForCreds(){
 	Log "User: $User"
 	Log "Port: $Port"
 
-	[[ $Host && $User && $Port ]] || { Typing -e "Provided info is incomplete. Aborting..."; exit 1; }
+	if [[ -z $Host || -z $User || -z $Port ]]; then
+		Typing -e "Provided info is incomplete. Aborting..."
+		exit 1
+	fi
+	if ! CheckIfValidPort "$Port"; then
+		Typing -e "SSH port must be a number between 1 and 65535. Aborting..."
+		exit 1
+	fi
 }
 
 
@@ -144,13 +153,13 @@ SetUp(){
 	local new_users_record; new_users_record=$Remote_Dir/new_user
 	Typing "Let's do a quick survey about what to set up first"
 	SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/survey.sh" "$new_users_record" "${Setup_Args[@]}" # Pty merges stdin and stderr
-	local users; users=$(SshCatFile "$new_users_record")
+	local user_record; user_record=$(SshCatFile "$new_users_record")
+	local -a users=(); IFS=' ' read -ra users <<< "$user_record"
 	echo
 
 	Typing "Before setting everything up, let's ${Y}create and upload keys${I} for the users on server. After all, key authentication needs keys to work. One user can actually have multiple keys. But for now, we just need one for each user"
 	local key_method=ed25519
-	local -a array; IFS=' ' read -ra array <<< "$users"
-	CreateSshKeys "$key_method" "${array[@]}" "$User"
+	CreateSshKeys "$key_method" "${users[@]}" "$User"
 	Typing "All users have their keys generated"
 	echo
 	
@@ -165,7 +174,7 @@ SetUp(){
 	local new_port; new_port=$(SshCatFile "$new_port_record")
 
 	Typing "Trying to log in and disable nuclear recovery timer..."
-	if TryLogInDisableTimer "$new_port" "${users[0]}"; then
+	if TryLogInDisableTimer "$new_port" "${users[0]:-$User}"; then
 		local ssh_config_dir="$HOME/.ssh/id_$key_method.d"
 		Typing "Copying private keys to local location $ssh_config_dir. This folder is automatically when initiating a SSH connection, saving you from specifying keys path when connecting to server"
 		CopyPrivateKeys "$ssh_config_dir"

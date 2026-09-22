@@ -1,8 +1,10 @@
 #! /bin/bash
 
+set -o pipefail
+
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/helpers.sh
-source "$Script_Dir/helpers.sh" 
+source "$Script_Dir/helpers.sh"
 # shellcheck source=./common.sh
 source "$Script_Dir/common.sh"
 
@@ -29,13 +31,13 @@ Main(){
     RemoveSetupFiles "$Script_Dir"
     Log "Removed setup files"
 
-    systemctl restart ssh
+    systemctl restart "$Ssh_Service"
     Log "SSH restarted"
 }
 
 
 InitializeSystemInfo(){
-	if GetDistroInfo || ! CheckOsSupport; then
+	if ! GetDistroInfo || ! CheckOsSupport; then
         Log -e "Trying to restore unsupported distro: $Os"
         return 1
     fi     
@@ -78,6 +80,14 @@ RestoreAuthorizedKey(){
 }
 
 
+RemoveAuthorizedKey(){
+    local home; home=$(getent passwd "$1" | cut -d: -f6)
+    local file; file="$home/.ssh/authorized_keys"
+    rm "$file"
+    Log "Removed $file"
+}
+
+
 RestoreHostname(){
     hostnamectl set-hostname "$1"
     RestoreBackup /etc/hostname
@@ -94,7 +104,7 @@ RestoreTimezone(){
 
 RestoreSshd(){
     RestoreBackup /etc/ssh/sshd_config
-    rm "$Sshd_Config"
+    rm -f "$Sshd_Config"
     Log "Restored sshd config"
 }
 
@@ -104,7 +114,14 @@ NotifyPackagesUpdated(){
 }
 
 
+TakeDownFail2Ban(){
+    systemctl disable --now fail2ban
+    Log "Fail2Ban stopped and disabled"
+}
+
+
 RestoreUfw(){
+    rm -rf /etc/ufw
     mv /etc/ufw.backup /etc/ufw
     ufw reload
     Log "Restored ufw settings"
@@ -112,14 +129,16 @@ RestoreUfw(){
 
 
 RestoreFirewalld(){
+    rm -rf /etc/firewalld
     mv /etc/firewalld.backup /etc/firewalld
     firewall-cmd --reload
-    Log "Restored ufw settings"
+    Log "Restored firewalld settings"
 }
 
 
 RestoreNftables(){
-    mv "nft.$TIMESTAMP.bak" /etc/nftables.conf
+    local backup="/etc/nftables/nft.$TIMESTAMP.bak"
+    mv "$backup" /etc/nftables.conf
     systemctl reload nftables
     Log "Restored nftables settings"
 }
@@ -154,6 +173,10 @@ RemoveSetupFiles(){
 ### Helper
 RestoreBackup(){
     local bak="$1.$TIMESTAMP.bak"
+    if [[ ! -f $bak ]]; then
+        Log -e "Backup not found: $bak"
+        return 1
+    fi
     cp "$bak" "$1"
 	Log "Restored $1"
 }

@@ -4,7 +4,7 @@ set -eu -o pipefail
 
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/helpers.sh
-source "$Script_Dir/helpers.sh" 
+source "$Script_Dir/helpers.sh"
 # shellcheck source=./common.sh
 source "$Script_Dir/common.sh"
 
@@ -44,7 +44,7 @@ OnExit(){
 StartRecoveryTimer(){
     Log -w "Nuclear recover timer started. If SSH login is broken, recovery script will automatically execute after 90s and revert everything"
     chmod 777 "$Script_Dir" #Allow any user to delete the folder and stop the timer
-    nohup sh -c "sleep 90 && TIMESTAMP=$TIMESTAMP TYPING=$TYPING $Script_Dir/restore.sh $Script_Dir/restore.log" &
+    nohup sh -c "sleep 90 && TIMESTAMP=$TIMESTAMP TYPING=$TYPING bash $Script_Dir/restore.sh $Script_Dir/restore.log" &
     Log "Recovery service is now waiting at PID $(pgrep -f "$Script_Dir/restore.sh")"
     Log "You can find the recovery log at $Script_Dir/restore.log"
 }
@@ -78,18 +78,18 @@ InitializeSystemInfo(){
 
 ### User
 EnsureSudoInstalledAndEnabled(){
-    ! EnsureInstalled sudo || return 1
+    EnsureInstalled sudo
 
     local file="/etc/sudoers"
-    if ! grep -q "^ *%$Sudo_Group ALL=(ALL:ALL) ALL" "$file"; then
+    if ! grep -Eq "^[[:space:]]*%$Sudo_Group ALL=\\(ALL(:ALL)?\\) ALL" "$file"; then
         local tmp; tmp=$(CreateTmp "$file")
         local bak; bak=$(CreateBackup "$file")
-        sed -i "s/^# *\(%$Sudo_Group ALL=(ALL:ALL) ALL\)/\1/" "$tmp"
+        sed -i -E "s|^[[:space:]]*#[[:space:]]*(%$Sudo_Group ALL=\\(ALL(:ALL)?\\) ALL)|\\1|" "$tmp"
         if visudo -csf "$tmp" >/dev/null 2>&1; then
             AddUndo RestoreSudo
             mv "$tmp" "$file"
         else 
-            rm "$tmp" "$bak"
+            rm -f "$tmp" "$bak"
             Log -e "Something went wrong. You need to manually enable sudo by modifying $file"
         fi
     fi
@@ -106,6 +106,7 @@ AddUser(){
     else
         args+=("-M")
     fi
+
     if $sudo; then
         args+=("-G" "$Sudo_Group")
     fi
@@ -134,18 +135,22 @@ ChangeRootPassword(){
 
 AddPublicKeys(){
     local keys=("$Script_Dir"/*.pub)
-    local user home record
+    local user home record key_name
     for key in "${keys[@]}"; do
-        user=$(basename "$key" | cut -d. -f1)
+        key_name=$(basename "$key")
+        user=${key_name%.$TIMESTAMP.key.pub}
         home=$(getent passwd "$user" | cut -d: -f6)
         record="$home/.ssh/authorized_keys"
 
         mkdir -p "$home/.ssh"
+        chmod 700 "$home/.ssh"
+        chown "$user:$user" "$home/.ssh"
         if [[ -f $record ]]; then
             CreateBackup "$record"
             AddUndo RestoreAuthorizedKey "$user"
         else
             touch "$record"
+            AddUndo RemoveAuthorizedKey "$user"
         fi
         chmod 600 "$record"
         chown "$user:$user" "$record"
@@ -171,17 +176,28 @@ ChangeHostname(){
     CreateBackup "$hosts_file"
     case "$Os" in
         debian|ubuntu)
-            echo "127.0.1.1 $new" > /etc/hosts
-            echo "::1 $new" > /etc/hosts
+            if grep -Eq '^[[:space:]]*127\.0\.1\.1([[:space:]]|$)' "$hosts_file"; then
+                sed -i -E "s|^[[:space:]]*127\\.0\\.1\\.1([[:space:]].*)?$|127.0.1.1 $new|" "$hosts_file"
+            else
+                printf '\n127.0.1.1 %s\n' "$new" >> "$hosts_file"
+            fi
             ;;
         almalinux|centos|rocky|fedora)
-            echo "127.0.0.1 $new $new.localdomain $new.localdomain4" > /etc/hosts
-            echo "::1 $new $new.localdomain $new.localdomain6" > /etc/hosts
+            if grep -Eq '^[[:space:]]*127\.0\.0\.1([[:space:]]|$)' "$hosts_file"; then
+                sed -i -E "s|^[[:space:]]*127\\.0\\.0\\.1([[:space:]].*)?$|127.0.0.1 localhost $new $new.localdomain $new.localdomain4|" "$hosts_file"
+            else
+                printf '\n127.0.0.1 localhost %s %s %s\n' "$new" "$new.localdomain" "$new.localdomain4" >> "$hosts_file"
+            fi
+            if grep -Eq '^[[:space:]]*::1([[:space:]]|$)' "$hosts_file"; then
+                sed -i -E "s|^[[:space:]]*::1([[:space:]].*)?$|::1 localhost $new $new.localdomain $new.localdomain6|" "$hosts_file"
+            else
+                printf '::1 localhost %s %s %s\n' "$new" "$new.localdomain" "$new.localdomain6" >> "$hosts_file"
+            fi
             ;;
     esac
 
     Log "Changed hostname to $new"
-    if grep -q "/etc/cloud" /etc/hosts; then
+    if [[ -d /etc/cloud ]]; then
         Typing -w "Your server provider uses Cloud-Init. The server will follows the cloud templates at boot. The hostname change might not persist after reboot. You may wanna manually disable Cloud-Init or change the template"
     fi
 }
@@ -197,14 +213,15 @@ ChangeTimezone(){
 
 ### SSH
 EnableAndCreateSshdDirectives(){
+    local config="/etc/ssh/sshd_config" line="Include $Sshd_Directive_Dir/*.conf"
+    local active_pattern='^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$'
+    local commented_pattern='^[[:space:]]*#[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$'
+    CreateBackup "$config"
     AddUndo RestoreSshd
-
-    local config="/etc/ssh/sshd_config" line="Include $Sshd_Directive_Dir/\*\.conf"
-    if ! grep -Eq "^[[:space:]]*$line" "$config"; then
-        CreateBackup "$config"
+    if ! grep -Eq "$active_pattern" "$config"; then
         Log "Backup Created"
-        if grep -Eq "$line" "$config"; then
-            sed -i "s|^[#[:space:]]*$line|$line|" "$config"
+        if grep -Eq "$commented_pattern" "$config"; then
+            sed -i -E 's|^[[:space:]]*#[[:space:]]*(Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf)[[:space:]]*$|\1|' "$config"
         else
             sed -i "1i $line" "$config"
         fi
@@ -218,6 +235,7 @@ EnableAndCreateSshdDirectives(){
      
 
 ChangeSshPort(){
+    CheckIfValidPort "$1" || { Log -e "Invalid SSH port: $1"; return 1; }
     SSH_PORT=$1
     echo "Port $1" >> "$Sshd_Config"
     Log "Changed port to $1"
@@ -315,6 +333,7 @@ SetUpFirewalld(){
     Log "Backed up at $backup"
 
     Log "Setting up firewalld"
+    systemctl enable --now firewalld
     firewall-cmd --permanent --set-default-zone=public
     Log "Set default zone to 'public'"
     firewall-cmd --permanent --zone=public --set-target=default
@@ -331,7 +350,6 @@ SetUpFirewalld(){
 
     firewall-cmd --reload
 
-    systemctl enable --now firewalld
     Log "firewalld enabled as system service and will start at boot"
 }
 
@@ -342,10 +360,11 @@ SetUpNftables(){
 
     local config_dir="/etc/nftables"
     AddUndo RestoreNftables
+    mkdir -p "$config_dir"
     nft list ruleset > "$config_dir/nft.$TIMESTAMP.bak"
     Log "Original nftables rules backed up"
     
-    nft -f <"$(TemplateNftables)"
+    TemplateNftables | nft -f -
     nft add rule inet filter input tcp dport "$SSH_PORT" accept
     Log "Set up nftables rules"
 
@@ -357,7 +376,7 @@ SetUpNftables(){
 
 ReloadSsh(){
 	Log -w "About to reload server-side SSH service. All changes will take effect for new connections. Don't worry. Established connections aren't affected"
-	systemctl reload ssh
+	systemctl reload "$Ssh_Service"
 	Log "SSH service reloaded"
 }
 
@@ -376,7 +395,8 @@ Install(){
 
 ### Helpers
 AddUndo(){
-    echo "$@" >> "$ToUndo"
+    printf '%q ' "$@" >> "$ToUndo"
+    printf '\n' >> "$ToUndo"
 }
 
 
@@ -384,6 +404,7 @@ CreateBackup(){
     local bak="$1.$TIMESTAMP.bak"
     cp "$1" "$bak"
     Typing "$1 backed up at $bak"
+    echo "$bak"
 }
 
 

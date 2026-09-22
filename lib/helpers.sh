@@ -26,6 +26,17 @@ CheckIfInstalled(){
 }
 
 
+CheckIfValidPort(){
+	[[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
+
+CheckIfTimeSynchronized(){
+	[[ $(timedatectl show -p NTPSynchronized --value 2>/dev/null) == yes ]] ||
+		pgrep -x 'chronyd|ntpd|openntpd' >/dev/null
+}
+
+
 CheckIfTyping(){
 	[[ -n "${TYPING:-}" ]] && [[ $TYPING == "true" || $TYPING == "false" ]] && return 0
 	local answer; read -rp "Do you wish to enable ${Y}typing effect${I} to improve readability and interactivity?: " answer
@@ -69,18 +80,18 @@ Typing(){
 		text="${prefix:-}$*"
 	fi
 
-	local typing; typing=$($disable_typing && echo false || echo "${TYPING:-}")
-	if [[ -z ${typing:-} ]]; then 
-		TYPING=false Typing -b 'Environment variable $TYPING not set'
-		typing=false
+	local typing=false
+	if [[ $disable_typing == false && ${TYPING:-false} == true ]]; then
+		typing=true
 	fi
-	local i; for (( i=0; i<${#text}; i++ )); do
-		if $is_ansi && [[ "${text:$i:1}" == $'\e' ]]; then
+	local i char; for (( i=0; i<${#text}; i++ )); do
+		char="${text:$i:1}"
+		if [[ $char == $'\e' ]]; then
 			is_ansi=true
-		elif $is_ansi && [[  "${text:$i:1}" == "m" ]]; then
+		elif $is_ansi && [[ $char == "m" ]]; then
 			is_ansi=false
 		fi
-		echo -e -n "${text:$i:1}" >&2
+		printf '%s' "$char" >&2
 		$typing && ! $is_ansi && sleep 0.034
 	done
 	$if_new_line && echo >&2 || return 0
@@ -96,9 +107,9 @@ CheckYesNo() {
 	local input
 	[[ -n ${1:-} ]] && input=$1 || input=${2:-}
 
-	if [[ "$input" =~ ^[:space:]*[Yy].* ]]; then
+	if [[ "$input" =~ ^[[:space:]]*[Yy].* ]]; then
 		return 0
-	elif [[ "$input" =~ ^[:space:]*[Nn].* ]]; then
+	elif [[ "$input" =~ ^[[:space:]]*[Nn].* ]]; then
 		return 1
 	else
 		local answer; read -rp "Unknown Input, please type Y, y, N or n. Try again: " answer
@@ -114,9 +125,9 @@ CheckIfSet(){
 
 Trim(){
 	if [[ -n "${1+x}" ]]; then
-        sed -E 's/^\s+//;s/\s+$//' <<< "$1" 
+	        sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' <<< "$1"
     elif [[ ! -t 0 ]]; then
-        sed -E 's/^\s+//;s/\s+$//'
+	        sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//'
     else
         return 0
     fi
@@ -135,7 +146,7 @@ IndexArrayValue(){
 			echo "$i"
 			return 0
 		fi
-		((i++))
+		((++i))
 	done
 	echo -1
 	return 1
