@@ -1,24 +1,48 @@
 # server-init
-Lightweight tool that runs locally and interactively initializes remote Linux servers for first-time setup.
+Lightweight bash scripts help initializing remote Linux servers, with **rollback failsafe** support. It support both CLI-driven **full automation** as well as beginner-friendly **Q&A interaction** setup. **A survey stage** takes place before executing the setup in both modes, to help catching bad configuration early and avoiding midway system corruption. 
 
-## Status
-This project is still experimental and under active testing and development.
 
-## Design goals
-- **Safety first** — avoid locking users out of servers
-- **Beginner friendly** — interactive prompts guide the setup process with coloring and optional typing effect
-- **Automation capable** — all steps can be driven by command-line arguments
-- **Recoverable** — automatic rollback if setup fails with counting-down timer
-- **Transparent** — actions are logged and reversible
-- **Multi-platform** — supports launching from Linux, macOS and Windows
-- **Multi-staged** - separates survey, setup and recovery phases
-- **Privacy** - passwords are not displayed during input. SSH keys are generated locally and only public keys are transferred
+# Quickstart
 
-## Supported setup tasks
+Only Debian, Ubuntu, AlmaLinux, CentOS, Rocky Linux and Fedora are supported.
+
+1. Clone this project to local
+```bash
+git clone https://github.com/red-bean-pasta/server-init
+cd server-init
+```
+
+`server-init` runs on a **local machine** instead of the remote server to hanndle SSH key creation and installing securely.
+
+2. Start
+
+A. Run interactively
+Simply pass no arguments
+```bash
+bash launch.sh
+```
+
+It will first ask about enabling typing effect or not, then prompt for each setup configuration item. No setup is executed during the interaction until the survey is finished and everything is valid.
+
+B. Run fully automated
+First, check supported arguments with
+```bash
+bash launch.sh -h
+```
+
+Then pass needed arguments:
+```bash
+bash launch.sh --host example.com --port 22 --user lily '$y$...' true true bash --new-port 40022 --disable-password --disable-root --update --ufw
+```
+
+Certain steps **may still require manual interaction**, such as SSH password login, SSH key generation and firewall confirmations.
+
+
+## Supported tasks
 - Install and enable sudo
-- Add users (name, home directory, sudo access, shell)
-- Generate keys locally and install public keys on the server
-- Add private key to `~/.ssh/` locally
+- Add users
+- Install public keys on the server
+- Add private key to local `~/.ssh/`
 - Change root password
 - Change hostname
 - Change timezone
@@ -28,37 +52,12 @@ This project is still experimental and under active testing and development.
 - Disable password login
 - Disable root login
 - Update system packages
-- Install firewall (firewalld / ufw) or configure nftables
+- Install firewall: firewalld, ufw or nftables
 - Install fail2ban
 - Automatic recovery
-- Automatic cleanup on failure
 
-## Workflow
-1. Upload setup scripts to the remote server
-2. Run the **survey phase** to collect configuration and generate a task list
-3. Start the **setup phase**
-4. Start a recovery timer on the remote server
-5. Log in using the generated SSH key to confirm success and cancel the recovery timer
-
-## Limitations
-- Currently supports Debian, Ubuntu, AlmaLinux, CentOS, Rocky Linux and Fedora
-- Tested primarily on Debian
-- macOS support is limited due to its outdated Bash version
-- Windows support is limited to launching the tool
-- Some steps still require manual interaction (SSH password login, SSH key generation, firewall confirmations)
-
-## Logging
-Logs are written to temporary files both locally and on the remote server.
-Recovery logs are written on the server because the SSH session is detached during recovery.
-
-## Quick start
-```bash
-git clone https://github.com/red-bean-pasta/server-init
-cd server-init
-bash launch.sh -h
-```
 
 ## Project history
-- Initial – multi-script prototype
-- Refactor – experimental single-file architecture
-- Redesign – introduce survey, setup and recovery phases with automatic rollback timer
+- 1.0 – multi-script prototype
+- 2.0 – experimental single-file architecture
+- 3.0 – introduce survey, setup and recovery phases with automatic rollback timer
