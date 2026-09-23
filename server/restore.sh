@@ -28,11 +28,11 @@ Main(){
     done
     Log "All restored"
 
-    RemoveSetupFiles "$Script_Dir"
-    Log "Removed setup files"
-
     systemctl restart "$Ssh_Service"
     Log "SSH restarted"
+
+    RemoveSetupFiles "$Script_Dir"
+    Log "Removed setup files"
 }
 
 
@@ -61,7 +61,7 @@ RestoreSudo(){
 
 DeleteUser(){
     userdel -rf "$1"
-	groupdel "$1"
+	groupdel "$1" 2>/dev/null || true
     Log "Deleted user $1"
 }
 
@@ -121,9 +121,9 @@ TakeDownFail2Ban(){
 
 
 RestoreUfw(){
+    ufw --force disable 2>/dev/null || true
     rm -rf /etc/ufw
-    mv /etc/ufw.backup /etc/ufw
-    ufw reload
+    [[ -d /etc/ufw.backup ]] && mv /etc/ufw.backup /etc/ufw
     Log "Restored ufw settings"
 }
 
@@ -138,9 +138,11 @@ RestoreFirewalld(){
 
 RestoreNftables(){
     local backup="/etc/nftables/nft.$TIMESTAMP.bak"
-    mv "$backup" /etc/nftables.conf
-    systemctl reload nftables
-    Log "Restored nftables settings"
+    if [[ -f "$backup" ]]; then
+        mv "$backup" "$Nftables_Config"
+        systemctl reload nftables 2>/dev/null || true
+        Log "Restored nftables settings"
+    fi
 }
 
 
@@ -166,7 +168,7 @@ EnableService(){
 
 
 RemoveSetupFiles(){
-    find "$Script_Dir" -mindepth 1 ! -name "$(basename "$Log_File")" -delete
+    find "$Script_Dir" -mindepth 1 ! -name "$(basename "$Log_File")" ! -name "restore.sh" -delete 2>/dev/null || true
 }
 
 

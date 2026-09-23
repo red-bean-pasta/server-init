@@ -158,11 +158,11 @@ InteractiveAddUser(){
             Typing "Shells are not always compatible, and one shell's script may not work on another"
             Typing "${G}Bash${I} is the safest and commonest choice for most servers"
         fi
-        local available; available=$(grep -Ev '^\s*(#|$)' <(cat /etc/shells))
+        local available; available=$(grep -Ev '^\s*(#|$)' /etc/shells)
         while true; do 
             Typing "Here are the available ones: "; cat <<< "$available"
             local shell; shell=$(PromptForAnswer "What'd would the ${G}shell${I} for '$username'? [Default to bash]: " bash)
-            if cat <<< "$available" | grep -q "/$shell" >/dev/null 2>&1; then
+            if grep -qE "(^|/)$shell$" <<< "$available"; then
                 break
             fi
             Typing -e "Unknown shell. Let's try again"
@@ -230,15 +230,18 @@ ChangeHostname(){
 
 
 ValidateHostname(){
-    [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || Typing -e "Invalid hostname: $1"
+    if [[ ! $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+        Typing -e "Invalid hostname: $1"
+        return 1
+    fi
 }
 
 
 InteractiveChangeHostname(){
     local new
     while true; do
-        new=$(PromptForAnswer "Have a better name in mind (Blank space is not allowed and underscore should be used. Return to skip changing)?: ")
-        new=${new// /_}
+        new=$(PromptForAnswer "Have a better name in mind (Blank space is not allowed and hyphen/underscore should be used. Return to skip changing)?: ")
+        new=${new// /-}
         [[ -z $new ]] && return 0
         if ValidateHostname "$new"; then
             AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
@@ -311,7 +314,7 @@ EnableAndCreateSshdDirectives(){
 
 ChangeSshPort(){
     Typing "22 is by convention the default SSH port. It therefore expects the most attacks. It's advised to ${Y}change to port${I} to a number between ${Y}49152 and 65535${I}"
-    Typing "(Technically any port between 0 and 65535 will do, but ports under 1024 are by convention reserved like 53 for DNS queries and 443 for HTTPS traffic, while numbers between 1024 and 49152 are also registered just less well-known. To avoid conflict in the future, it's best to just leave them alone)"
+    Typing "(Technically any port between 0 and 65535 will do, but ports under 1024 are by convention reserved like 53 for DNS queries and 443 for HTTPS traffic, while numbers above 49152 commonly used for ephemeral outbound connections and better avoided)"
     Typing "Don't worry. Changing the port won't interrupt this connection until SSH servic is restarted"
     Typing "Current: $(cat /etc/ssh/sshd_config | grep -w Port)"
 
@@ -360,7 +363,9 @@ DisablePasswordLogin(){
     
 
 InteractiveDisablePasswordLogin(){
-    PromptForYesNo "Disable it? (Y/n): " Y && AddTodo DisablePasswordLogin
+    if PromptForYesNo "Disable it? (Y/n): " Y; then
+        AddTodo DisablePasswordLogin
+    fi
 }
 
 
@@ -375,7 +380,9 @@ DisableRootLogin(){
 
 
 InteractiveDisableRootLogin(){
-    PromptForYesNo "Disable it? (Y/n): " Y && AddTodo DisableRootLogin
+    if PromptForYesNo "Disable it? (Y/n): " Y; then
+        AddTodo DisableRootLogin
+    fi
 }
     
 
@@ -390,7 +397,9 @@ UpdatePackages(){
 
 
 InteractiveUpdatePackages(){
-    PromptForYesNo "Update? (y/n): " && AddTodo UpdatePackages
+    if PromptForYesNo "Update? (y/n): "; then
+        AddTodo UpdatePackages
+    fi
 }
     
 
@@ -436,7 +445,9 @@ InstallFail2Ban(){
 
 
 InteractiveInstallFail2Ban(){
-    PromptForYesNo "Install Fail2Ban? (Y/n): " Y && AddTodo SetUpFail2Ban
+    if PromptForYesNo "Install Fail2Ban? (Y/n): " Y; then
+        AddTodo SetUpFail2Ban
+    fi
 }
 
 
@@ -447,8 +458,7 @@ ScheduleReloadSsh(){
 
 ### Helpers
 AddTodo(){
-    printf '%q ' "$@" >> "$Todo"
-    printf '\n' >> "$Todo"
+    echo "$*" >> "$Todo"
     Log "Todo item added: $*"
 }
 
@@ -456,14 +466,14 @@ AddTodo(){
 GetPasswordAndHash(){
     local password retyped
     while true; do
-        Typing -n "What would be password (your input won't show up for security reason)?: "; read -rs password
-        Typing -n "Retype the password: "; read -rs retyped
+        Typing -n "What would be password (your input won't show up for security reason)?: "; read -rs password; echo >&2
+        Typing -n "Retype the password: "; read -rs retyped; echo >&2
         if [[ -z "$password" ]]; then
             Typing -e "Empty password is not allowed"
         elif [[ $password == "$retyped"  ]]; then
             break
         else
-            Typing -e "Passowrd not match. Let's try again" >&2
+            Typing -e "Passwords do not match. Let's try again" >&2
         fi
     done
     openssl passwd -6 "$password"
@@ -481,7 +491,7 @@ ValidateFlag(){
 
     local order; order=$(IndexArrayValue Flags "$flag")
     local next_flag=${Flags[order+1]:-}
-    local next_flag_index; next_flag_index=$([[ -n "$next_flag" ]] && echo "${Flag_Indexes[$next_flag]}" || echo "${#Args[@]}" )
+    local next_flag_index; next_flag_index=$([[ -n "$next_flag" ]] && echo "${Flag_Indexes[$next_flag]}" || echo "${#Args[@]}")
     local value_count=$((next_flag_index - index - 1))
     if [[ $value_count -lt $min ]] || [[ $value_count -gt $max ]]; then
         Log "Invalid $flag argument: Expecting $([[ $min -eq $max ]] && echo "$min" || echo "$min-$max") values, received $value_count" 

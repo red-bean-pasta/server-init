@@ -43,9 +43,9 @@ OnExit(){
 
 StartRecoveryTimer(){
     Log -w "Nuclear recover timer started. If SSH login is broken, recovery script will automatically execute after 90s and revert everything"
-    chmod 777 "$Script_Dir" #Allow any user to delete the folder and stop the timer
+    chmod -R 777 "$Script_Dir" #Allow any user to delete the folder and stop the timer
     nohup sh -c "sleep 90 && TIMESTAMP=$TIMESTAMP TYPING=$TYPING bash $Script_Dir/restore.sh $Script_Dir/restore.log" &
-    Log "Recovery service is now waiting at PID $(pgrep -f "$Script_Dir/restore.sh")"
+    Log "Recovery service is now waiting at PID $!"
     Log "You can find the recovery log at $Script_Dir/restore.log"
 }
 
@@ -284,15 +284,19 @@ SetUpFail2Ban(){
     esac || return 1
 
     AddUndo TakeDownFail2Ban
-    local default_config="/etc/fail2ban/fail2ban.conf"
-    local local_config="/etc/fail2ban/fail2ban.local"
+    local default_config="/etc/fail2ban/jail.conf"
+    local local_config="/etc/fail2ban/jail.local"
+    if [[ ! -f "$default_config" ]]; then
+        Log -e "Fail2Ban configuration '$default_config' not found"
+        return 1
+    fi
     if [[ ! -f "$local_config" ]]; then
         cp "$default_config" "$local_config"
     fi
 
-    local max_retry; max_retry=$(grep -m1 "^maxretry" $local_config | awk -F= '{print $2}' | tr -d ' ')
-    local ban_time; ban_time=$(grep -m1 "^bantime" $local_config | awk -F= '{print $2}' | tr -d ' ')
-    local find_time; find_time=$(grep -m1 "^findtime" $local_config | awk -F= '{print $2}' | tr -d ' ')
+    local max_retry; max_retry=$(grep -m1 "^maxretry" "$local_config" | awk -F= '{print $2}' | tr -d ' ')
+    local ban_time; ban_time=$(grep -m1 "^bantime" "$local_config" | awk -F= '{print $2}' | tr -d ' ')
+    local find_time; find_time=$(grep -m1 "^findtime" "$local_config" | awk -F= '{print $2}' | tr -d ' ')
     Log "Your current configuration bans failed attempts for $ban_time after $max_retry times within $find_time"
 
     systemctl enable fail2ban
@@ -356,7 +360,7 @@ SetUpFirewalld(){
 
 SetUpNftables(){
     Disable firewalld ufw || return 1
-    ! EnsureInstalled nft && return 1
+    ! EnsureInstalled nftables "command -v nft" && return 1
 
     local config_dir="/etc/nftables"
     AddUndo RestoreNftables
@@ -368,7 +372,7 @@ SetUpNftables(){
     nft add rule inet filter input tcp dport "$SSH_PORT" accept
     Log "Set up nftables rules"
 
-    nft list ruleset | tee /etc/nftables.conf >/dev/null
+    nft list ruleset | tee "$Nftables_Config" >/dev/null
     systemctl enable --now nftables
     Log "Nftables enabled as system service and will start at boot"
 }
@@ -395,8 +399,7 @@ Install(){
 
 ### Helpers
 AddUndo(){
-    printf '%q ' "$@" >> "$ToUndo"
-    printf '\n' >> "$ToUndo"
+    echo "$*" >> "$ToUndo"
 }
 
 
@@ -430,19 +433,23 @@ Disable(){
             Log "Service $s doesn't exist. Skipping..."
             continue
         fi
-        if systemctl is-active --quiet "$s" && systemctl stop "$s"; then
-            AddUndo StartService "$s"
-            Log "Stopped $s"
-        else
-            Log "Failed to stop $s"
-            return 1
+        if systemctl is-active --quiet "$s"; then
+            if systemctl stop "$s"; then
+                AddUndo StartService "$s"
+                Log "Stopped $s"
+            else
+                Log -e "Failed to stop $s"
+                return 1
+            fi
         fi
-        if systemctl is-enabled --quiet "$s" && systemctl disable "$s"; then
-            AddUndo EnableService "$s"
-            Log "Disabled $s"
-        else
-            Log "Failed to disable $s"
-            return 1
+        if systemctl is-enabled --quiet "$s"; then
+            if systemctl disable "$s"; then
+                AddUndo EnableService "$s"
+                Log "Disabled $s"
+            else
+                Log -e "Failed to disable $s"
+                return 1
+            fi
         fi
     done
 }
@@ -519,9 +526,6 @@ TemplateNftables(){ cat <<EOF
 
         chain forward {
             type filter hook forward priority filter; policy drop;
-
-            # Connection tracking
-            ct state {established, related} accept
         }
 
         chain output {

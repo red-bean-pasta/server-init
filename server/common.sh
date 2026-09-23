@@ -1,15 +1,13 @@
 #! /bin/bash
 
-declare -I TIMESTAMP SSH_PORT TYPING
-
-Todo_Filename="todo"
-ToUndo_Filename="toundo"
+export TIMESTAMP SSH_PORT TYPING
 
 Sshd_Directive_Dir="/etc/ssh/sshd_config.d"
 Sshd_Config="$Sshd_Directive_Dir/99-user.$TIMESTAMP.conf"
 Ssh_Service="ssh"
+Nftables_Config="/etc/nftables.conf"
 
-Sudo_Group=$(grep -oE '(^|:)(wheel|sudo):' /etc/group | cut -d: -f1 | head -n1)
+Sudo_Group=$(grep -E '^(wheel|sudo):' /etc/group | cut -d: -f1 | head -n1)
 
 # Identify_Files=(/etc/passwd /etc/shadow /etc/group /etc/gshadow)
 
@@ -22,9 +20,13 @@ GetDistroInfo(){
         Os=$ID
         case "$Os" in
             almalinux|centos|rocky|fedora)
-                Ssh_Service="sshd" ;;
+                Ssh_Service="sshd"
+                Nftables_Config="/etc/sysconfig/nftables.conf"
+                ;;
             *)
-                Ssh_Service="ssh" ;;
+                Ssh_Service="ssh"
+                Nftables_Config="/etc/nftables.conf"
+                ;;
         esac
     else 
         Os="Unknown"

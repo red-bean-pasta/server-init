@@ -229,7 +229,7 @@ TryLogInDisableTimer(){
 	local port=$1 user=$2
 	local key; key="$Tmp_Dir/$user.$Timestamp.key"
 	Typing "Trying to log in as '$user' with key at $key..."
-	if ssh -p "$port" -i "$key" -o PasswordAuthentication=no "$user@$Host" "rm -rf ${Remote_Dir:?}"; then
+	if ssh -p "$port" -i "$key" -o PasswordAuthentication=no "$user@$Host" "rm -rf '${Remote_Dir:?}'/* 2>/dev/null; rmdir '${Remote_Dir:?}' 2>/dev/null || true; [ ! -f '${Remote_Dir:?}/toundo' ]"; then
 		Typing "Recovery timer successfully disabled"
 		return 0
 	else
