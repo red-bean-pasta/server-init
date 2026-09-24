@@ -71,7 +71,7 @@ Main() {
   Launch "$@" 2>&1 | tee "$log"
   echo
   
-  Log "Setup completed. Enjoy!"
+  Log "Setup completed. You can find the log at '$log'. Enjoy!"
 }
 
 
@@ -335,11 +335,11 @@ AppendPrivateKeys(){
 
 CleanUp(){
   local exit_code=$?
-  Log "Performing cleanup..."
-
   if (( exit_code != 0 )); then
     Log -e "Setup exited with code $exit_code"
   fi
+
+  Log "Performing cleanup..."
 
   if [[ -S "$Ssh_Socket" ]]; then
     ssh -S "$Ssh_Socket" -O exit -p "$Port" "$User@$Host" 2>/dev/null || true

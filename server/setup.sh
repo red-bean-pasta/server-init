@@ -164,7 +164,7 @@ AddPublicKeys(){
     chmod 700 "$home/.ssh"
     chown "$user:$user" "$home/.ssh"
     if [[ -f $record ]]; then
-      CreateBackup "$record"
+      CreateBackup "$record" >/dev/null
       AddUndo RestoreAuthorizedKey "$user"
     else
       touch "$record"
@@ -185,13 +185,13 @@ ChangeHostname(){
   AddUndo RestoreHostname "$old"
 
   local hostname_file="/etc/hostname"
-  CreateBackup "$hostname_file"
+  CreateBackup "$hostname_file" >/dev/null
 
   hostnamectl set-hostname "$new"
   echo "$new" > "$hostname_file"
 
   local hosts_file="/etc/hosts"
-  CreateBackup "$hosts_file"
+  CreateBackup "$hosts_file" >/dev/null
   case "$Os" in
     debian|ubuntu)
       if grep -Eq '^[[:space:]]*127\.0\.1\.1([[:space:]]|$)' "$hosts_file"; then
@@ -235,7 +235,7 @@ EnableAndCreateSshdDirectives(){
   local config="/etc/ssh/sshd_config" line="Include $directive_dir/*.conf"
   local active_pattern='^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$'
   local commented_pattern='^[[:space:]]*#[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$'
-  CreateBackup "$config"
+  CreateBackup "$config" >/dev/null
   AddUndo RestoreSshd
   if ! grep -Eq "$active_pattern" "$config"; then
     Log "Created a backup"
@@ -350,8 +350,12 @@ SetUpUfw(){
   ufw allow "$SSH_PORT/tcp"
   Log "Denied inbound connections except on SSH port $SSH_PORT and allowed all outbound connections"
 
-  ufw enable
-  Log "UFW is enabled and will start automatically at boot"
+  if ufw --force enable; then
+    Log "UFW is enabled and will start automatically at boot"
+  else
+    Log -e "Could not enable UFW"
+    return 1
+  fi
 }
 
 
