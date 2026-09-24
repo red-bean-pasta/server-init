@@ -14,46 +14,46 @@ Setup_Args=()
 
 PrintHelp(){
 cat <<EOF
-Set up remote server running on Linux
-Pass options to run in automated mode, else interactive mode
+Initialize a remote Linux server
+Pass options for automated mode, or run without options for interactive mode
 
 Options:
   -h, --help
     Show help message
   --typing
-    Enable typing effect for terminal output. Default to false if any automation argument is provided
+    Enable the typing effect for easier reading. It is disabled automatically when you pass setup options
 
 Connection options:
   --host
-    Server address
+    Server address or domain
   --port
-    SSH Port to connect to
+    SSH port used to connect to the server
 
 Remote automation options:
   --user [username] [password_hash] [key_comment (default: username:hostname)] [if_sudo_group (default: true)] [optional: shell (default: bash)]
-    Create new user with a home directory. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote the password as it may contain special characters
+    Create a new user with a home directory. Use a SHA-512 or Yescrypt password hash and put it in single quotes because it may contain special characters
   --more-users
-    Add more users in interactive mode
+    Add more users interactively
   --root-password [password_hash]
-    Change root password. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote it
+    Change the root password. Use a SHA-512 or Yescrypt password hash and put it in single quotes because it may contain special characters
   --hostname [hostname]
-    Change hostname
+    Change the server's hostname
   --timezone [new_timezone]
     Change timezone
   --new-port [new_port]
     Change the SSH port
   --disable-password
-    Disable SSH password login
+    Disable password-based SSH login
   --disable-root
-    Disable SSH root login
+    Disable SSH login for root
   --update
     Perform system packages update
   --ufw
-    Install and set up UFW. Conflicts with --firewalld and --nftables. May require --update
+    Install and set up UFW. Use only one of --ufw, --firewalld, and --nftables. May require --update
   --firewalld
-    Install and set up Firewalld. Conflicts with --ufw and --nftables. May require --update
+    Install and set up Firewalld. Use only one of --ufw, --firewalld, and --nftables. May require --update
   --nftables
-    Install and set up Nftables. Conflicts with --ufw and --firewalld. May require --update
+    Install and set up Nftables. Use only one of --ufw, --firewalld, and --nftables. May require --update
   --fail2ban
     Install and set up Fail2Ban. May require --update
 EOF
@@ -162,14 +162,14 @@ ValidateFirewallOptions(){
   done
 
   if (( count > 1 )); then
-    Typing -e "Only one firewall option may be used: --ufw, --firewalld or --nftables"
+    Typing -e "Choose only one firewall option: --ufw, --firewalld, or --nftables"
     return 1
   fi
 }
 
 
 PrepareSshInfo(){
-  : "${Host:=$(PromptForAnswer "First, how should we connect to the server? Most servers should have an ${G}IP${I}: ")}"
+  : "${Host:=$(PromptForAnswer "First, how should we connect to the server? Most servers use an ${G}IP address${I}: ")}"
   User=root
   : "${Port:=$(PromptForAnswer "What's the SSH ${G}port${I}? [Default to 22]: " 22)}"
 
@@ -178,7 +178,7 @@ PrepareSshInfo(){
   Log "Port: $Port"
 
   if [[ -z $Host || -z $User || -z $Port ]]; then
-    Typing -e "Provided info is incomplete. Aborting..."
+    Typing -e "Connection details is incomplete. Aborting..."
     exit 1
   fi
   if ! CheckIfValidPort "$Port"; then
@@ -189,23 +189,23 @@ PrepareSshInfo(){
 
 
 SetUp(){
-  Typing "Creating ${Y}master SSH connection${I}... It's essentially one persisting reusable connection. It will be purged after so don't worry."
-  Typing "It will prompt for password. Password won't show up during typing for security reasons."
-  Typing "It may prompt about 'fingerprint'. Fingerprint identifies a connection's authenticity. While middle man attack doesn't happen often, it doesn't hurt to be cautious. You may find the correct fingerprint in your provider's mail or website."
+  Typing "Creating a ${Y}master SSH connection${I} so the setup can reuse one open SSH connection. It will be removed when setup exits"
+  Typing "SSH may ask for password. Nothing will appear while you type it, which is normal for security"
+  Typing "SSH may ask about a ${Y}fingerprint${I}. It helps confirm that you are connecting to the right server and not an impostor. Check your provider's email or website if you need to verify it"
   CreateMasterSshConnection
   Log "Master SSH connection ${G}created${I} at $Ssh_Socket"
   echo
 
-  Typing "Creating temporary server-side working directory $Remote_Dir.."
+  Typing "Creating a temporary working folder on the server at $Remote_Dir"
   SshRunCommand mkdir -p "$Remote_Dir/"
-  Log "Working directory created"
+  Log "Temporary server folder created"
 
-  Typing "Uploading files..."
+  Typing "Uploading setup files to the server"
   CopySetupFiles
-  Log "All files transferred"
+  Log "Setup files uploaded"
   echo
 
-  Typing "Let's first do a quick survey about what to set up"
+  Typing "Let's answer a few questions about what to set up"
   local env; env=("TIMESTAMP=$Timestamp" "SSH_PORT=$Port" "TYPING=$TYPING")
   SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/survey.sh" "${Setup_Args[@]}" # Pty merges stdin and stderr
   echo
@@ -215,28 +215,28 @@ SetUp(){
     IFS=' ' read -ra users <<< "$user_record"
   fi
 
-  Typing "Before setting everything up, let's parepare needed authentication keys..."
+  Typing "Before applying the changes, let's prepare the login keys"
   if (( ${#users[@]} > 0 )); then
-    Typing "During the key generation, you will be prompted to add ${G}optional passwords${I} to secure the key further. It helps guarding the attacker even if the key is leaked"
+    Typing "During key generation, SSH will ask whether to protect each private key with a password. This adds protection if the key is leaked"
 
-    local hostname; hostname=$(SshCatFile "$Remote_Dir/hostname")
-    local commented; mapfile -t commented <<< "$(SshCatFile "$Remote_Dir/automated_user_comments")"
-    CreateSshKeys "ed25519" "$hostname" commented "${users[@]}" "$User"
-    Log "All users have their keys generated"
+    local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname")
+    local automated_user_comments; mapfile -t automated_user_comments <<< "$(SshCatFile "$Remote_Dir/automated_user_comments")"
+    CreateSshKeys "ed25519" "$hostname" automated_user_comments "${users[@]}" "$User"
+    Log "Login keys generated for all users"
     echo
 
-    Typing "Uploading public keys to server..."
+    Typing "Uploading the public login keys to the server"
     UploadPublicKeys
     Log "All public keys uploaded"
     echo
   else
-    Log "No user created. Skipping..."
+    Log "No user created. Skipping"
     echo
   fi
 
-  Typing "Setting up..."
+  Typing "Applying the selected server changes"
   SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/setup.sh"
-  Typing "Setup completed"
+  Typing "Server changes applied"
   local new_port; new_port=$(SshCatFile "$Remote_Dir/new_port")
 
   local hero; if (( ${#users[@]} > 0 )); then
@@ -246,7 +246,7 @@ SetUp(){
   fi
   Typing "Trying to log in and disable nuclear recovery timer..."
   if TryLogInDisableTimer "$new_port" "$hero"; then
-    Typing "Appending private keys to local location $HOME/.ssh/id_ed25519"
+    Typing "Adding the generated private keys to $HOME/.ssh/id_ed25519"
     AppendPrivateKeys
   fi
 }
@@ -280,7 +280,7 @@ CreateSshKeys(){
   local -n commented=$3
   local i=0 u comment
   for u in "${@:4}"; do
-    Typing "Generating keys for user '$u'..."
+    Typing "Generating a login key for '$u'"
     comment=${commented[i]:-$u:$hostname}
     ssh-keygen -t "$method" -o -a 256 -C "$comment" -f "$Tmp_Dir/$u.$Timestamp.key"
     ((i += 1))
@@ -336,7 +336,7 @@ CleanUp(){
 
   if [[ -n ${Tmp_Dir:-} && -d $Tmp_Dir ]]; then
     RemoveDirectory "$Tmp_Dir"
-    Log "Removed $Tmp_Dir where SSH socket and keys temporarily live"
+    Log "Removed temporary local folder $Tmp_Dir containing the SSH socket and keys"
   fi
 
   Log "Everything cleaned up"
