@@ -219,9 +219,7 @@ SetUp(){
   if (( ${#users[@]} > 0 )); then
     Typing "During key generation, SSH will ask whether to protect each private key with a password. This adds protection if the key is leaked"
 
-    local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname")
-    local automated_user_comments; mapfile -t automated_user_comments <<< "$(SshCatFile "$Remote_Dir/automated_user_comments")"
-    CreateSshKeys "ed25519" "$hostname" automated_user_comments "${users[@]}" "$User"
+    CreateSshKeys "${users[@]}" "$User"
     Log "Login keys generated for all users"
     echo
 
@@ -279,10 +277,16 @@ CopySetupFiles(){
 
 
 CreateSshKeys(){
-  local method=$1 hostname=$2
-  local -n commented=$3
+  local method=ed25519
+  local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname")
+  local automated_user_comments; automated_user_comments=$(SshCatFile "$Remote_Dir/automated_user_comments")
+  local -a commented=()
+  local line; while IFS= read -r line || [[ -n $line ]]; do
+    commented+=("$line")
+  done <<< "$automated_user_comments"
+
   local i=0 u comment
-  for u in "${@:4}"; do
+  for u in "$@"; do
     Typing "Generating a login key for '$u'"
     comment=${commented[i]:-$u:$hostname}
     ssh-keygen -t "$method" -o -a 256 -C "$comment" -f "$Tmp_Dir/$u.$Timestamp.key"
