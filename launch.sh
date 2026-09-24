@@ -3,11 +3,12 @@
 set -eu -o pipefail
 
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # shellcheck source=./lib/helpers.sh
 source "$Script_Dir/lib/helpers.sh"
 
-
 declare Host User Port Timestamp Tmp_Dir Ssh_Socket Remote_Dir
+
 Setup_Args=()
 
 
@@ -60,22 +61,29 @@ EOF
 
 
 Main() {
+  HelpIfNeeded "$@"
+  
+  local log; log=$(mktemp)
+  echo
+  Log "You can find the log at $log"
+  echo
+  
+  Launch "$@" 2>&1 | tee "$log"
+  echo
+  
+  Log "Setup completed. Enjoy!"
+}
+
+
+HelpIfNeeded(){
   local arg; for arg in "$@"; do
     case "$arg" in
       -h | --help)
         PrintHelp
-        return 0
+        exit 0
         ;;
     esac
   done
-
-  local log; log=$(mktemp)
-  echo
-  Log "[You can find the log at $log if anything went wrong]"
-  echo
-  Launch "$@" 2>&1 | tee "$log"
-  echo
-  Log "Setup completed. Enjoy! "
 }
 
 
@@ -88,10 +96,20 @@ Launch(){
   CheckIfTyping
   echo
 
-  PromptForCreds
+  PrepareSshInfo
   echo
 
   SetUp
+}
+
+InitializeRuntime(){
+  Timestamp=$(date -u +"%Y%m%dT%H%M%S")
+  
+  Tmp_Dir=$(mktemp -d /tmp/dir.XXXXXX)
+  chmod 700 "$Tmp_Dir"
+  
+  Ssh_Socket=$(mktemp -u "$Tmp_Dir/sock.XXXXXX") # To ensure compatibility with the v3.2 Bash on MacOS
+  Remote_Dir=$(mktemp -du /tmp/dir.XXXXXX)
 }
 
 
@@ -132,16 +150,6 @@ ParseArgs(){
   fi
 }
 
-
-InitializeRuntime(){
-  Timestamp=$(date -u +"%Y%m%dT%H%M%S")
-  Tmp_Dir=$(mktemp -d /tmp/dir.XXXXXX)
-  chmod 700 "$Tmp_Dir"
-  Ssh_Socket=$(mktemp -u "$Tmp_Dir/sock.XXXXXX") # To ensure compatibility with the v3.2 Bash on MacOS
-  Remote_Dir=$(mktemp -du /tmp/dir.XXXXXX)
-}
-
-
 ValidateFirewallOptions(){
   local count=0 option argument
   for option in --ufw --firewalld --nftables; do
@@ -160,10 +168,10 @@ ValidateFirewallOptions(){
 }
 
 
-PromptForCreds(){
-  : "${Host:=$(PromptForAnswer "First, what would the server's ${G}IP or domain${I} be?: ")}"
+PrepareSshInfo(){
+  : "${Host:=$(PromptForAnswer "First, how should we connect to the server? Most servers should have an ${G}IP${I}: ")}"
   User=root
-  : "${Port:=$(PromptForAnswer "Then, what would be the SSH ${G}port${I}? [Default to 22]: " 22)}"
+  : "${Port:=$(PromptForAnswer "What's the SSH ${G}port${I}? [Default to 22]: " 22)}"
 
   Log "Host: $Host"
   Log "User: $User"
@@ -181,62 +189,63 @@ PromptForCreds(){
 
 
 SetUp(){
-  Typing "Creating ${Y}master SSH connection${I}... It's essentially one persisting connection that can be reused. Don't worry, it will be purged once everything is set up"
-  Typing "It will prompt for password. In terminal, password won't show up when typing for security reasons"
-  Typing "It may also prompt about fingerprint. Fingerprint identifies the connection's authencity so that middle men can't impersonating. It doesn't happen often. But it won't hurt to be cautious. You may find the correct fingerprint on the mail from your provider or their website"
+  Typing "Creating ${Y}master SSH connection${I}... It's essentially one persisting reusable connection. It will be purged after so don't worry."
+  Typing "It will prompt for password. Password won't show up during typing for security reasons."
+  Typing "It may prompt about 'fingerprint'. Fingerprint identifies a connection's authenticity. While middle man attack doesn't happen often, it doesn't hurt to be cautious. You may find the correct fingerprint in your provider's mail or website."
   CreateMasterSshConnection
-  Typing "Master SSH connection ${G}created${I} at $Ssh_Socket"
+  Log "Master SSH connection ${G}created${I} at $Ssh_Socket"
   echo
 
-  Typing "Creating temporary working directory $Remote_Dir on server before ${Y}uploading${I} neccessary setup files..."
+  Typing "Creating temporary server-side working directory $Remote_Dir.."
   SshRunCommand mkdir -p "$Remote_Dir/"
+  Log "Working directory created"
+
   Typing "Uploading files..."
   CopySetupFiles
-  Typing "All files transferred"
+  Log "All files transferred"
   echo
 
+  Typing "Let's first do a quick survey about what to set up"
   local env; env=("TIMESTAMP=$Timestamp" "SSH_PORT=$Port" "TYPING=$TYPING")
-  local new_users_record; new_users_record=$Remote_Dir/new_user
-  Typing "Let's do a quick survey about what to set up first"
-  SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/survey.sh" "$new_users_record" "${Setup_Args[@]}" # Pty merges stdin and stderr
-  local user_record; user_record=$(SshCatFile "$new_users_record")
-  local key_hostname; key_hostname=$(SshCatFile "$Remote_Dir/new_hostname")
-  local -a users=()
-  local -a key_comments=()
-  if [[ -n $user_record ]]; then
-    IFS=' ' read -ra users <<< "$user_record"
-    local key_comment_record; key_comment_record=$(SshCatFile "$Remote_Dir/new_user_comment")
-    mapfile -t key_comments <<< "$key_comment_record"
-  fi
+  SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/survey.sh" "${Setup_Args[@]}" # Pty merges stdin and stderr
   echo
 
+  local user_record; user_record=$(SshCatFile "$Remote_Dir/new_users")
+  local new_hostname; new_hostname=$(SshCatFile "$Remote_Dir/new_hostname")
+  local -a users=(); if [[ -n $user_record ]]; then
+    IFS=' ' read -ra users <<< "$user_record"
+  fi
+
+  Typing "Before setting everything up, let's parepare needed authentication keys..."
   if (( ${#users[@]} > 0 )); then
-    Typing "Before setting everything up, let's ${Y}create and upload keys${I} for the users on server. After all, key authentication needs keys to work. One user can actually have multiple keys. But for now, we just need one for each user"
     local key_method=ed25519
-    CreateSshKeys "$key_method" "$key_hostname" key_comments "${users[@]}" "$User"
-    Typing "All users have their keys generated"
+    CreateSshKeys "$key_method" "$new_hostname" "${users[@]}" "$User"
+    Log "All users have their keys generated"
     echo
 
+    Typing "Uploading public keys to server..."
     UploadPublicKeys
-    Typing "Public keys Uploaded"
+    Log "All public keys uploaded"
+    echo
+  else
+    Log "No user created. Skipping..."
     echo
   fi
 
   Typing "Setting up..."
-  local new_port_record; new_port_record="$Remote_Dir/new_port"
-  SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/setup.sh" "$new_port_record"
+  SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/setup.sh"
   Typing "Setup completed"
-  local new_port; new_port=$(SshCatFile "$new_port_record")
+  local new_port; new_port=$(SshCatFile "$Remote_Dir/new_port")
 
-  if (( ${#users[@]} > 0 )); then
-    Typing "Trying to log in and disable nuclear recovery timer..."
-    if TryLogInDisableTimer "$new_port" "${users[0]}"; then
-      Typing "Appending private keys to local location $HOME/.ssh/id_ed25519"
-      AppendPrivateKeys
-    fi
+  local hero; if (( ${#users[@]} > 0 )); then
+    hero=${users[0]}
   else
-    Typing "No new users were created. Using the existing SSH connection to disable the recovery timer..."
-    DisableRecoveryTimer
+    hero=$USER
+  fi
+  Typing "Trying to log in and disable nuclear recovery timer..."
+  if TryLogInDisableTimer "$new_port" "$hero"; then
+    Typing "Appending private keys to local location $HOME/.ssh/id_ed25519"
+    AppendPrivateKeys
   fi
 }
 
@@ -304,23 +313,15 @@ TryLogInDisableTimer(){
 }
 
 
-DisableRecoveryTimer(){
-  if ssh -S "$Ssh_Socket" -p "$Port" "$User@$Host" "rm -rf '${Remote_Dir:?}'/* 2>/dev/null; rmdir '${Remote_Dir:?}' 2>/dev/null || true; [ ! -f '${Remote_Dir:?}/toundo' ]"; then
-    Typing "Recovery timer successfully disabled"
-  else
-    Typing "Failed to disable recovery timer. Recovery will happen"
-    return 1
-  fi
-}
-
-
 AppendPrivateKeys(){
-  local key_file target="$HOME/.ssh/id_ed25519"
+  local target="$HOME/.ssh/id_ed25519"
   mkdir -p "$HOME/.ssh"
-  for key_file in "$Tmp_Dir"/*.key; do
-    [[ -f $key_file ]] || continue
-    cat "$key_file" >> "$target"
+
+  local k; for k in "$Tmp_Dir"/*.key; do
+    [[ -f $k ]] || continue
+    cat "$k" >> "$target"
   done
+
   chmod 600 "$target"
   rm -f "$Tmp_Dir"/*.key "$Tmp_Dir"/*.pub
 }
@@ -332,10 +333,12 @@ CleanUp(){
 
   if [[ -S "$Ssh_Socket" ]]; then
     ssh -S "$Ssh_Socket" -O exit -p "$Port" "$User@$Host" 2>/dev/null || true
+    Log "Closed master SSH connection"
   fi
+
   if [[ -n ${Tmp_Dir:-} && -d $Tmp_Dir ]]; then
     RemoveDirectory "$Tmp_Dir"
-    Log "Removed $Tmp_Dir where SSH ControlMaster socket and keys temporarily live"
+    Log "Removed $Tmp_Dir where SSH socket and keys temporarily live"
   fi
 
   Log "Everything cleaned up"
