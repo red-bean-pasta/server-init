@@ -11,6 +11,7 @@ source "$Script_Dir/common.sh"
 
 Todo="$Script_Dir/todo"
 ToUndo="$Script_Dir/toundo"
+New_Port_Record="$Script_Dir/new_port"
 
 
 Main(){
@@ -20,7 +21,7 @@ Main(){
   echo
 
   if [[ ! -f "$Todo" ]]; then
-    Log -e "To-do file '$Todo' not found"
+    Log -e "The setup plan '$Todo' was not found"
     exit 1
   fi
 
@@ -30,7 +31,7 @@ Main(){
     echo
   done
 
-  echo "$SSH_PORT" > "$1"
+  echo "$SSH_PORT" > "$New_Port_Record"
 }
 
 
@@ -42,17 +43,17 @@ OnExit(){
 
 
 StartRecoveryTimer(){
-  Log -w "Nuclear recover timer started. If SSH login is broken, recovery script will automatically execute after 90s and revert everything"
+  Log -w "Recovery timer started. If the new SSH login fails, the server will automatically run the restore script after 90 seconds"
   chmod -R 777 "$Script_Dir" #Allow any user to delete the folder and stop the timer
   nohup sh -c "sleep 90 && TIMESTAMP=$TIMESTAMP TYPING=$TYPING bash $Script_Dir/restore.sh $Script_Dir/restore.log" &
-  Log "Recovery service is now waiting at PID $!"
-  Log "You can find the recovery log at $Script_Dir/restore.log"
+  Log "Recovery service is waiting in the background with PID $!"
+  Log "Recovery log will be written to $Script_Dir/restore.log"
 }
 
 
 InitializeSystemInfo(){
   if ! GetDistroInfo || ! CheckOsSupport; then
-    Log -e "Trying to set up on unsupported distro: $Os"
+    Log -e "Cannot set up an unsupported Linux distribution: $Os"
     exit 1
   fi
 
@@ -71,8 +72,8 @@ InitializeSystemInfo(){
       ;;
   esac
 
-  Log "Distro command to update packages: $Update_Cmd"
-  Log "Distro command to install new package: $Install_Cmd"
+  Log "Package update command: $Update_Cmd"
+  Log "Package install command: $Install_Cmd"
 }
 
 
@@ -90,10 +91,10 @@ EnsureSudoInstalledAndEnabled(){
       mv "$tmp" "$file"
     else
       rm -f "$tmp" "$bak"
-      Log -e "Something went wrong. You need to manually enable sudo by modifying $file"
+      Log -e "Could not enable sudo. You may need to enable it manually by editing $file"
     fi
   fi
-  Log "Ensured that sudo is enabled"
+  Log "Sudo is enabled"
 }
 
 
@@ -116,14 +117,14 @@ AddUser(){
   Log "Created user '$name'"
 
   usermod -p "$password" "$name"
-  Log "Set password for user '$name'"
+  Log "Set the password for user '$name'"
 }
 
 
 ChangeRootPassword(){
   AddUndo RestoreRootPassword "$(grep -E "^root:" /etc/shadow | cut -d: -f2)"
   usermod -p "$1" root
-  Log "Changed root user's password"
+  Log "Changed the root user's password"
 }
 
 
@@ -150,7 +151,7 @@ AddPublicKeys(){
     chown "$user:$user" "$record"
 
     cat "$key" >> "$record"
-    Log "Added public key $key to user $user"
+    Log "Added public key '$key' for user '$user'"
   done
 }
 
@@ -190,9 +191,9 @@ ChangeHostname(){
       ;;
   esac
 
-  Log "Changed hostname to $new"
+  Log "Changed the hostname to $new"
   if [[ -d /etc/cloud ]]; then
-    Typing -w "Your server provider uses Cloud-Init. The server will follows the cloud templates at boot. The hostname change might not persist after reboot. You may wanna manually disable Cloud-Init or change the template"
+    Typing -w "Your provider uses Cloud-Init. The server may apply its own hostname settings at boot, so this hostname change may not persist. You may need to disable Cloud-Init or change its template manually"
   fi
 }
 
@@ -201,7 +202,7 @@ ChangeHostname(){
 ChangeTimezone(){
   AddUndo RestoreTimezone "$1"
   timedatectl set-timezone "$2"
-  Log "Timezone changed to $2"
+  Log "Changed the timezone to $2"
 }
 
 
@@ -213,18 +214,18 @@ EnableAndCreateSshdDirectives(){
   CreateBackup "$config"
   AddUndo RestoreSshd
   if ! grep -Eq "$active_pattern" "$config"; then
-    Log "Backup Created"
+    Log "Created a backup"
     if grep -Eq "$commented_pattern" "$config"; then
       sed -i -E 's|^[[:space:]]*#[[:space:]]*(Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf)[[:space:]]*$|\1|' "$config"
     else
       sed -i "1i $line" "$config"
     fi
   fi
-  Log "Ensured that original ssh config respects directive folder"
+  Log "The original SSH configuration now includes the directive folder"
 
   mkdir -p "$Sshd_Directive_Dir"
   touch "$Sshd_Config"
-  Log "Create directive config at $Sshd_Config"
+  Log "Created SSH directive configuration at $Sshd_Config"
 }
 
 
@@ -232,7 +233,7 @@ ChangeSshPort(){
   CheckIfValidPort "$1" || { Log -e "Invalid SSH port: $1"; return 1; }
   SSH_PORT=$1
   echo "Port $1" >> "$Sshd_Config"
-  Log "Changed port to $1"
+  Log "Changed the SSH port to $1"
 }
 
 
@@ -244,7 +245,7 @@ EnablePublicKeyAuthentication(){
 
 DisablePasswordLogin(){
   echo "PasswordAuthentication no" >> "$Sshd_Config"
-  Log "Disbaled password login"
+  Log "Disabled password login"
 }
 
 
@@ -258,9 +259,9 @@ DisableRootLogin(){
 UpdatePackages(){
   AddUndo NotifyPackagesUpdated
   if $Update_Cmd; then
-    Log "${G}All packages successfully updated${I}"
+    Log "${G}All packages were successfully updated${I}"
   else
-    Log -e "Something went wrong. You need to update manually later"
+    Log -e "Could not update all packages. You may need to update them manually later"
     return 1
   fi
 }
@@ -272,7 +273,7 @@ SetUpFail2Ban(){
       EnsureInstalled fail2ban
       ;;
     almalinux|centos|rocky|fedora)
-      Typing "For RHEL-based distributions, the default Red Hat Enterprise Linux (RHEL) repository only offers core packages. Fail2Ban is actualluy inside Extra Packages for Enterprise Linux (EPEL) repository. We also need to enable that repository"
+      Typing "On RHEL-based distributions, the default repository contains only core packages. Fail2Ban is provided by the Extra Packages for Enterprise Linux (EPEL) repository, so that repository must also be enabled"
       EnsureInstalled epel-release
       EnsureInstalled fail2ban
       ;;
@@ -282,7 +283,7 @@ SetUpFail2Ban(){
   local default_config="/etc/fail2ban/jail.conf"
   local local_config="/etc/fail2ban/jail.local"
   if [[ ! -f "$default_config" ]]; then
-    Log -e "Fail2Ban configuration '$default_config' not found"
+    Log -e "Fail2Ban configuration '$default_config' was not found"
     return 1
   fi
   if [[ ! -f "$local_config" ]]; then
@@ -292,11 +293,11 @@ SetUpFail2Ban(){
   local max_retry; max_retry=$(grep -m1 "^maxretry" "$local_config" | awk -F= '{print $2}' | tr -d ' ')
   local ban_time; ban_time=$(grep -m1 "^bantime" "$local_config" | awk -F= '{print $2}' | tr -d ' ')
   local find_time; find_time=$(grep -m1 "^findtime" "$local_config" | awk -F= '{print $2}' | tr -d ' ')
-  Log "Your current configuration bans failed attempts for $ban_time after $max_retry times within $find_time"
+  Log "Current Fail2Ban settings allow $max_retry failed attempts within $find_time, followed by a ban lasting $ban_time"
 
   systemctl enable fail2ban
   systemctl start fail2ban
-  Log "Fail2Ban is started and now protecting your server"
+  Log "Fail2Ban is running and protecting the server"
 }
 
 
@@ -305,19 +306,19 @@ SetUpUfw(){
   ! EnsureInstalled ufw && return 1
 
   AddUndo RestoreUfw
-  Log "Backing up ufw rules..."
+  Log "Backing up UFW rules"
   local dir=/etc/ufw backup=/etc/ufw.backup
   cp -a "$dir" "$backup"
-  Log "Backed up at $backup"
+  Log "UFW rules backed up at $backup"
 
   ufw default deny incoming
   ufw default allow outgoing
 
   ufw allow "$SSH_PORT/tcp"
-  Log "Denied all inbound connection unless to SSH port $SSH_PORT. Allowed any outbound connection"
+  Log "Denied inbound connections except on SSH port $SSH_PORT and allowed all outbound connections"
 
   ufw enable
-  Log "ufw enabled as system service and will start at boot"
+  Log "UFW is enabled and will start automatically at boot"
 }
 
 
@@ -326,30 +327,30 @@ SetUpFirewalld(){
   ! EnsureInstalled firewalld && return 1
 
   AddUndo RestoreFirewalld
-  Log "Backing up firewalld rules..."
+  Log "Backing up firewalld rules"
   local dir=/etc/firewalld backup=/etc/firewalld.backup
   cp -a "$dir" "$backup"
-  Log "Backed up at $backup"
+  Log "firewalld rules backed up at $backup"
 
-  Log "Setting up firewalld"
+  Log "Configuring firewalld"
   systemctl enable --now firewalld
   firewall-cmd --permanent --set-default-zone=public
-  Log "Set default zone to 'public'"
+  Log "Set firewalld default zone to 'public'"
   firewall-cmd --permanent --zone=public --set-target=default
-  Log "Set default target to 'default'"
+  Log "Set firewalld default target to 'default'"
   local services; services=$(firewall-cmd --zone=public --list-services)
   local -a array; IFS=' ' read -ra array <<< "$services"
   local s; for s in "${array[@]}"; do
       firewall-cmd --permanent --zone=public --remove-service="$s"
-      Log "Removed allowed service $s"
+      Log "Removed allowed firewalld service $s"
   done
 
   firewall-cmd --permanent --zone=public --add-port="$SSH_PORT/tcp"
-  Log "Added port $SSH_PORT"
+  Log "Allowed SSH port $SSH_PORT"
 
   firewall-cmd --reload
 
-  Log "firewalld enabled as system service and will start at boot"
+  Log "firewalld is enabled and will start automatically at boot"
 }
 
 
@@ -361,25 +362,25 @@ SetUpNftables(){
   AddUndo RestoreNftables
   mkdir -p "$config_dir"
   nft list ruleset > "$config_dir/nft.$TIMESTAMP.bak"
-  Log "Original nftables rules backed up"
+  Log "Backed up the original nftables rules"
 
   TemplateNftables | nft -f -
   nft add rule inet filter input tcp dport "$SSH_PORT" accept
-  Log "Set up nftables rules"
+  Log "Configured nftables rules"
 
   nft list ruleset | tee "$Nftables_Config" >/dev/null
   systemctl enable --now nftables
-  Log "Nftables enabled as system service and will start at boot"
+  Log "nftables is enabled and will start automatically at boot"
 }
 
 
 ReloadSsh(){
-  Log "Validating SSH configuration"
+  Log "Checking the SSH configuration"
   if ! sshd -t; then
     Log -e "SSH configuration validation failed"
     return 1
   fi
-  Log -w "About to reload server-side SSH service. All changes will take effect for new connections. Don't worry. Established connections aren't affected"
+  Log -w "Reloading the server SSH service next. The changes affect new connections only, and existing connections will stay open"
   systemctl reload "$Ssh_Service"
   Log "SSH service reloaded"
 }
@@ -387,11 +388,11 @@ ReloadSsh(){
 
 Install(){
   AddUndo Uninstall "$@"
-  Log "Installing: $*"
+  Log "Installing $*"
   if $Install_Cmd "$@"; then
-    Log "Installed: $*"
+  Log "Installed $*"
   else
-    Log -e "Failed to install $*. You may need to install them manually later"
+  Log -e "Could not install $*. You may need to install it manually later"
     return 1
   fi
 }
@@ -406,7 +407,7 @@ AddUndo(){
 CreateBackup(){
   local bak="$1.$TIMESTAMP.bak"
   cp "$1" "$bak"
-  Typing "$1 backed up at $bak"
+  Typing "Backed up $1 to $bak"
   echo "$bak"
 }
 
@@ -430,24 +431,24 @@ Disable(){
   local s; for s in "$@"; do
     Log "Disabling $s"
     if ! systemctl cat "$s" >/dev/null 2>&1; then
-      Log "Service $s doesn't exist. Skipping..."
+      Log "Service $s does not exist, so it will be skipped"
       continue
     fi
     if systemctl is-active --quiet "$s"; then
       if systemctl stop "$s"; then
         AddUndo StartService "$s"
-        Log "Stopped $s"
+        Log "Stopped service $s"
       else
-        Log -e "Failed to stop $s"
+        Log -e "Could not stop service $s"
         return 1
       fi
     fi
     if systemctl is-enabled --quiet "$s"; then
       if systemctl disable "$s"; then
         AddUndo EnableService "$s"
-        Log "Disabled $s"
+        Log "Disabled service $s"
       else
-        Log -e "Failed to disable $s"
+        Log -e "Could not disable service $s"
         return 1
       fi
     fi

@@ -9,7 +9,7 @@ I=$'\e[0m' # Reset/Init
 
 CheckIfRoot(){
   if [[ "$EUID" -ne 0 ]]; then
-    Typing -e "Root privilege required"
+    Log -e "Root privilege required"
     exit 1
   fi
 }
@@ -18,10 +18,10 @@ CheckIfRoot(){
 CheckIfInstalled(){
   local command=${2:-"command -v $1"}
   if $command >/dev/null 2>&1; then
-    Typing "$1 is already installed"
+    Log "$1 is already installed"
     return 0
   fi
-  Typing "$1 is not installed"
+  Log "$1 is not installed"
   return 1
 }
 
@@ -74,7 +74,7 @@ Typing(){
   done
 
   if [[ $# -eq 0 ]]; then
-    Typing -b "Calling Typing when no text is provided"
+    Log -b "Calling Typing when no text is provided"
     return 1
   else
     text="${prefix:-}$*"

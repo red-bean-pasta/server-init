@@ -2,8 +2,7 @@
 
 export TIMESTAMP SSH_PORT TYPING
 
-Sshd_Directive_Dir="/etc/ssh/sshd_config.d"
-Sshd_Config="$Sshd_Directive_Dir/99-user.$TIMESTAMP.conf"
+Sshd_Config="/etc/ssh/sshd_config.d/99-user.$TIMESTAMP.conf"
 Ssh_Service="ssh"
 Nftables_Config="/etc/nftables.conf"
 

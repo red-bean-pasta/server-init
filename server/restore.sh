@@ -26,19 +26,19 @@ Main(){
     ${undos[i]}
     echo
   done
-  Log "All restored"
+  Log "All changes were restored"
 
   systemctl restart "$Ssh_Service"
-  Log "SSH restarted"
+  Log "SSH service restarted"
 
   RemoveSetupFiles "$Script_Dir"
-  Log "Removed setup files"
+  Log "Removed the temporary setup files"
 }
 
 
 InitializeSystemInfo(){
   if ! GetDistroInfo || ! CheckOsSupport; then
-    Log -e "Trying to restore unsupported distro: $Os"
+    Log -e "Cannot restore an unsupported Linux distribution: $Os"
     return 1
   fi
 
@@ -55,20 +55,20 @@ InitializeSystemInfo(){
 
 RestoreSudo(){
   RestoreBackup /etc/sudoers
-  Log "Restored sudo file"
+  Log "Restored the sudo configuration"
 }
 
 
 DeleteUser(){
   userdel -rf "$1"
   groupdel "$1" 2>/dev/null || true
-  Log "Deleted user $1"
+  Log "Deleted user '$1'"
 }
 
 
 RestoreRootPassword(){
   usermod -p "$1" root
-  Log "Restored root password"
+  Log "Restored the root user's password"
 }
 
 
@@ -76,7 +76,7 @@ RestoreAuthorizedKey(){
   local home; home=$(getent passwd "$1" | cut -d: -f6)
   local file; file="$home/.ssh/authorized_keys"
   RestoreBackup "$file"
-  Log "Restored $file"
+  Log "Restored '$file'"
 }
 
 
@@ -84,7 +84,7 @@ RemoveAuthorizedKey(){
   local home; home=$(getent passwd "$1" | cut -d: -f6)
   local file; file="$home/.ssh/authorized_keys"
   rm "$file"
-  Log "Removed $file"
+  Log "Removed '$file'"
 }
 
 
@@ -92,31 +92,31 @@ RestoreHostname(){
   hostnamectl set-hostname "$1"
   RestoreBackup /etc/hostname
   RestoreBackup /etc/hosts
-  Log "Restored hostname"
+  Log "Restored the hostname"
 }
 
 
 RestoreTimezone(){
   timedatectl set-timezone "$1"
-  Log "Restored timezone"
+  Log "Restored the timezone"
 }
 
 
 RestoreSshd(){
   RestoreBackup /etc/ssh/sshd_config
   rm -f "$Sshd_Config"
-  Log "Restored sshd config"
+  Log "Restored the SSH configuration"
 }
 
 
 NotifyPackagesUpdated(){
-  Typing "Package update can't be reversed. If the update is cut off during installation stage, please address it immediately. Partial update is dangerous"
+  Typing "Package updates cannot be reversed. If an update is interrupted during installation, address it immediately because a partial update can leave the package system in a dangerous state"
 }
 
 
 TakeDownFail2Ban(){
   systemctl disable --now fail2ban
-  Log "Fail2Ban stopped and disabled"
+  Log "Stopped and disabled Fail2Ban"
 }
 
 
@@ -124,7 +124,7 @@ RestoreUfw(){
   ufw --force disable 2>/dev/null || true
   rm -rf /etc/ufw
   [[ -d /etc/ufw.backup ]] && mv /etc/ufw.backup /etc/ufw
-  Log "Restored ufw settings"
+  Log "Restored UFW settings"
 }
 
 
@@ -150,20 +150,20 @@ Uninstall(){
   if $Uninstall_Cmd "$@"; then
     Log "Uninstalled $*"
   else
-    Typing -e "Failed to uninstall $*. You may wanna uninstall manually later"
+    Typing -e "Could not uninstall $*. You may need to uninstall it manually later"
   fi
 }
 
 
 StartService(){
   systemctl start "$1"
-  Log "Re-started $1"
+  Log "Started service $1 again"
 }
 
 
 EnableService(){
   systemctl enable "$1"
-  Log "Re-enabled $1"
+  Log "Enabled service $1 again"
 }
 
 
@@ -176,11 +176,11 @@ RemoveSetupFiles(){
 RestoreBackup(){
   local bak="$1.$TIMESTAMP.bak"
   if [[ ! -f $bak ]]; then
-    Log -e "Backup not found: $bak"
+    Log -e "Backup '$bak' was not found"
     return 1
   fi
   cp "$bak" "$1"
-  Log "Restored $1"
+  Log "Restored '$1'"
 }
 
 
