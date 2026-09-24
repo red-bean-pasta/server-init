@@ -3,6 +3,7 @@
 set -o pipefail
 
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # shellcheck source=../lib/helpers.sh
 source "$Script_Dir/helpers.sh"
 # shellcheck source=./common.sh
@@ -114,25 +115,62 @@ NotifyPackagesUpdated(){
 }
 
 
-TakeDownFail2Ban(){
-  systemctl disable --now fail2ban
+DisableFail2Ban(){
+  systemctl disable --now fail2ban 2>/dev/null || true
   Log "Stopped and disabled Fail2Ban"
 }
 
 
-RestoreUfw(){
+RestoreFail2Ban(){
+  local config="/etc/fail2ban/jail.local"
+  local backup="$config.$TIMESTAMP.bak"
+  if [[ -f "$backup" ]]; then
+    mv "$backup" "$config"
+  else
+    rm -f "$config"
+  fi
+  Log "Restored Fail2Ban configuration"
+}
+
+
+DisableUfw(){
   ufw --force disable 2>/dev/null || true
+  Log "Disabled UFW"
+}
+
+
+RestoreUfw(){
+  if [[ ! -d /etc/ufw.backup ]]; then
+    Log -e "UFW backup was not found"
+    return 1
+  fi
   rm -rf /etc/ufw
-  [[ -d /etc/ufw.backup ]] && mv /etc/ufw.backup /etc/ufw
+  mv /etc/ufw.backup /etc/ufw
   Log "Restored UFW settings"
 }
 
 
+DisableFirewalld(){
+  systemctl disable --now firewalld 2>/dev/null || true
+  Log "Stopped and disabled firewalld"
+}
+
+
 RestoreFirewalld(){
+  if [[ ! -d /etc/firewalld.backup ]]; then
+    Log -e "firewalld backup was not found"
+    return 1
+  fi
   rm -rf /etc/firewalld
   mv /etc/firewalld.backup /etc/firewalld
-  firewall-cmd --reload
+  firewall-cmd --reload 2>/dev/null || true
   Log "Restored firewalld settings"
+}
+
+
+DisableNftables(){
+  systemctl disable --now nftables 2>/dev/null || true
+  Log "Stopped and disabled nftables"
 }
 
 

@@ -6,8 +6,6 @@ Sshd_Config="/etc/ssh/sshd_config.d/99-user.$TIMESTAMP.conf"
 Ssh_Service="ssh"
 Nftables_Config="/etc/nftables.conf"
 
-Sudo_Group=$(grep -E '^(wheel|sudo):' /etc/group | cut -d: -f1 | head -n1)
-
 # Identify_Files=(/etc/passwd /etc/shadow /etc/group /etc/gshadow)
 
 

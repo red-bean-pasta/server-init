@@ -3,15 +3,16 @@
 set -eu -o pipefail
 
 Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # shellcheck source=../lib/helpers.sh
 source "$Script_Dir/helpers.sh"
 # shellcheck source=./common.sh
 source "$Script_Dir/common.sh"
 
-
 Todo="$Script_Dir/todo"
 ToUndo="$Script_Dir/toundo"
 New_Port_Record="$Script_Dir/new_port"
+Sudo_Group=""
 
 
 Main(){
@@ -37,6 +38,7 @@ Main(){
 
 OnExit(){
   local exit_code=$?
+  trap - EXIT INT TERM HUP
   StartRecoveryTimer
   exit "$exit_code"
 }
@@ -44,8 +46,11 @@ OnExit(){
 
 StartRecoveryTimer(){
   Log -w "Recovery timer started. If the new SSH login fails, the server will automatically run the restore script after 90 seconds"
-  chmod -R 777 "$Script_Dir" #Allow any user to delete the folder and stop the timer
-  nohup sh -c "sleep 90 && TIMESTAMP=$TIMESTAMP TYPING=$TYPING bash $Script_Dir/restore.sh $Script_Dir/restore.log" &
+  # The directory intentionally kept private.
+  # Disable is achieved by creating a cancel file besides the directory.
+  chmod -R u=rwX,go= "$Script_Dir"
+  local cancel_file="${Script_Dir}.cancel"
+  nohup sh -c "sleep 90 && if [ -f '$cancel_file' ]; then rm -rf '$Script_Dir' '$cancel_file'; else TIMESTAMP='$TIMESTAMP' TYPING='$TYPING' bash '$Script_Dir/restore.sh' '$Script_Dir/restore.log'; fi" &
   Log "Recovery service is waiting in the background with PID $!"
   Log "Recovery log will be written to $Script_Dir/restore.log"
 }
@@ -80,6 +85,12 @@ InitializeSystemInfo(){
 ### User
 EnsureSudoInstalledAndEnabled(){
   EnsureInstalled sudo
+
+  Sudo_Group=$(grep -E '^(wheel|sudo):' /etc/group | cut -d: -f1 | head -n1)
+  if [[ -z $Sudo_Group ]]; then
+    Log -e "Could not find a sudo group after installing sudo"
+    return 1
+  fi
 
   local file="/etc/sudoers"
   if ! grep -Eq "^[[:space:]]*%$Sudo_Group ALL=\\(ALL(:ALL)?\\) ALL" "$file"; then
@@ -208,7 +219,8 @@ ChangeTimezone(){
 
 ### SSH
 EnableAndCreateSshdDirectives(){
-  local config="/etc/ssh/sshd_config" line="Include $Sshd_Directive_Dir/*.conf"
+  local directive_dir="/etc/ssh/sshd_config.d"
+  local config="/etc/ssh/sshd_config" line="Include $directive_dir/*.conf"
   local active_pattern='^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$'
   local commented_pattern='^[[:space:]]*#[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$'
   CreateBackup "$config"
@@ -223,7 +235,7 @@ EnableAndCreateSshdDirectives(){
   fi
   Log "The original SSH configuration now includes the directive folder"
 
-  mkdir -p "$Sshd_Directive_Dir"
+  mkdir -p "$directive_dir"
   touch "$Sshd_Config"
   Log "Created SSH directive configuration at $Sshd_Config"
 }
@@ -268,6 +280,8 @@ UpdatePackages(){
 
 
 SetUpFail2Ban(){
+  AddDisableUndo fail2ban DisableFail2Ban
+
   case "$Os" in
     debian|ubuntu)
       EnsureInstalled fail2ban
@@ -279,13 +293,16 @@ SetUpFail2Ban(){
       ;;
   esac || return 1
 
-  AddUndo TakeDownFail2Ban
   local default_config="/etc/fail2ban/jail.conf"
   local local_config="/etc/fail2ban/jail.local"
   if [[ ! -f "$default_config" ]]; then
     Log -e "Fail2Ban configuration '$default_config' was not found"
     return 1
   fi
+  if [[ -f "$local_config" ]]; then
+    CreateBackup "$local_config" >/dev/null
+  fi
+  AddUndo RestoreFail2Ban
   if [[ ! -f "$local_config" ]]; then
     cp "$default_config" "$local_config"
   fi
@@ -302,6 +319,10 @@ SetUpFail2Ban(){
 
 
 SetUpUfw(){
+  if ! command -v ufw >/dev/null 2>&1 || ! ufw status 2>/dev/null | grep -q '^Status: active'; then
+    AddUndo DisableUfw
+  fi
+
   Disable firewalld || return 1
   ! EnsureInstalled ufw && return 1
 
@@ -323,6 +344,8 @@ SetUpUfw(){
 
 
 SetUpFirewalld(){
+  AddDisableUndo firewalld DisableFirewalld
+
   Disable ufw || return 1
   ! EnsureInstalled firewalld && return 1
 
@@ -355,6 +378,8 @@ SetUpFirewalld(){
 
 
 SetUpNftables(){
+  AddDisableUndo nftables DisableNftables
+
   Disable firewalld ufw || return 1
   ! EnsureInstalled nftables "command -v nft" && return 1
 
@@ -401,6 +426,15 @@ Install(){
 ### Helpers
 AddUndo(){
   echo "$*" >> "$ToUndo"
+}
+
+
+AddDisableUndo(){
+  local service=$1 undo=$2
+  if systemctl is-active --quiet "$service" && systemctl is-enabled --quiet "$service"; then
+    return 0
+  fi
+  AddUndo "$undo"
 }
 
 

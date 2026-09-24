@@ -14,7 +14,7 @@ Setup_Args=()
 
 PrintHelp(){
 cat <<EOF
-Initialize a remote Linux server
+Lightweight bash tool to help initializing remote Linux servers
 Pass options for automated mode, or run without options for interactive mode
 
 Options:
@@ -248,6 +248,9 @@ SetUp(){
   if TryLogInDisableTimer "$new_port" "$hero"; then
     Typing "Adding the generated private keys to $HOME/.ssh/id_ed25519"
     AppendPrivateKeys
+  else
+    Typing -e "Attempt failed. Recovery will happen"
+    return 1
   fi
 }
 
@@ -300,9 +303,10 @@ UploadPublicKeys(){
 TryLogInDisableTimer(){
   local port=$1 user=$2
   local key; key="$Tmp_Dir/$user.$Timestamp.key"
+  local cancel_file; cancel_file="$Remote_Dir.cancel"
   Typing "Trying to log in as '$user' with key at $key..."
-  if ssh -p "$port" -i "$key" -o PasswordAuthentication=no "$user@$Host" "rm -rf '${Remote_Dir:?}'/* 2>/dev/null; rmdir '${Remote_Dir:?}' 2>/dev/null || true; [ ! -f '${Remote_Dir:?}/toundo' ]"; then
-    Typing "Recovery timer successfully disabled"
+  if ssh -p "$port" -i "$key" -o PasswordAuthentication=no "$user@$Host" "touch '$cancel_file' && [ -f '$cancel_file' ]"; then
+    Typing "Recovery timer cancellation ordered"
     return 0
   else
     Typing "Failed to log in. Recovery will happen"
