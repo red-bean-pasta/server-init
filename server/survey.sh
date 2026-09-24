@@ -124,6 +124,17 @@ ValidateUsername(){
 }
 
 
+ValidatePasswordHash(){
+  local password_hash=$1
+  if [[ $password_hash =~ ^\$(6|y)\$[^$]+(\$[^$]+)+$ ]]; then
+    return 0
+  fi
+
+  Log -e "Password hash is invalid. Use a SHA-512 hash beginning with \$6\$ or a yescrypt hash beginning with \$y\$"
+  return 1
+}
+
+
 AddUsers(){
   Typing "Operating as the root user is ${Y}discouraged${I} because root has full control and a mistake can harm the system. A normal user has fewer privileges and can still perform administrator tasks through 'sudo', which means 'superuser do'"
   Typing "Let's create a ${Y}normal user${I}"
@@ -133,6 +144,7 @@ AddUsers(){
     ValidateUsername "$username" || return 1
     local value_count; value_count=$(GetFlagValueCount --user)
     local password=${Args[index+2]} comment="" sudo=true shell=bash
+    ValidatePasswordHash "$password" || return 1
     if (( value_count >= 3 )) && [[ -n ${Args[index+3]} ]]; then
       comment=${Args[index+3]}
     fi
@@ -210,7 +222,10 @@ ChangeRootPassword(){
   Typing "You may sometimes need to switch to the root user, so you may want to ${Y}change the root password${I} to something easier to remember"
   Typing -w "This is recommended only when password or root login is disabled. Otherwise, a randomly generated password is safer"
 
-  local index; index=$(ValidateFlag --root-password 1) && AddTodo ChangeRootPassword "${Args[index+1]}"
+  local index; if index=$(ValidateFlag --root-password 1); then
+    ValidatePasswordHash "${Args[index+1]}" || exit 1
+    AddTodo ChangeRootPassword "${Args[index+1]}"
+  fi
 
   DoIfInteractive InteractiveChangeRootPassword
 }
@@ -476,7 +491,8 @@ ScheduleReloadSsh(){
 
 ### Helpers
 AddTodo(){
-  echo "$*" >> "$Todo"
+  printf '%q ' "$@" >> "$Todo"
+  printf '\n' >> "$Todo"
   Log "Todo item added: $*"
 }
 

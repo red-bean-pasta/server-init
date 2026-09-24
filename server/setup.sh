@@ -28,8 +28,13 @@ Main(){
 
   local todos; mapfile -t todos < "$Todo"
   for todo in "${todos[@]}"; do
-    $todo
-    echo
+    if eval "$todo"; then
+      echo
+    else
+      local exit_code=$?
+      Log -e "Step failed with exit code $exit_code"
+      exit "$exit_code"
+    fi
   done
 
   echo "$SSH_PORT" > "$New_Port_Record"
@@ -45,12 +50,12 @@ OnExit(){
 
 
 StartRecoveryTimer(){
-  Log -w "Recovery timer started. If the new SSH login fails, the server will automatically run the restore script after 90 seconds"
+  Log -w "Recovery timer started. The server will automatically run the restore script after 90 seconds"
   # The directory intentionally kept private.
   # Disable is achieved by creating a cancel file besides the directory.
   chmod -R u=rwX,go= "$Script_Dir"
   local cancel_file="${Script_Dir}.cancel"
-  nohup sh -c "sleep 90 && if [ -f '$cancel_file' ]; then rm -rf '$Script_Dir' '$cancel_file'; else TIMESTAMP='$TIMESTAMP' TYPING='$TYPING' bash '$Script_Dir/restore.sh' '$Script_Dir/restore.log'; fi" &
+  nohup sh -c "sleep 90 && if [ -f '$cancel_file' ]; then rm -rf '$Script_Dir' '$cancel_file'; else TIMESTAMP='$TIMESTAMP' TYPING='$TYPING' bash '$Script_Dir/restore.sh' '$Script_Dir/restore.log'; fi" >/dev/null 2>&1 &
   Log "Recovery service is waiting in the background with PID $!"
   Log "Recovery log will be written to $Script_Dir/restore.log"
 }
@@ -113,11 +118,18 @@ AddUser(){
   local name=$1 password=$2 sudo=$3 shell=$4
   local args=("useradd" "-U" "-m")
 
-  if $sudo; then
+  if [[ "$sudo" == "true" ]]; then
     args+=("-G" "$Sudo_Group")
+  elif [[ "$sudo" != "false" ]]; then
+    Log -e "Invalid sudo setting '$sudo'. Use 'true' or 'false'"
+    return 1
   fi
   if [[ -n $shell ]]; then
-    local path; path=$(cat /etc/shells | grep -m 1 "/$shell")
+    local path
+    if ! path=$(grep -m 1 -E "(^|/)$shell$" /etc/shells); then
+      Log -e "Shell '$shell' is not available on this server"
+      return 1
+    fi
     args+=("-s" "$path")
   fi
 

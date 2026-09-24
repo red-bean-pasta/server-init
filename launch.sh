@@ -205,7 +205,7 @@ SetUp(){
   Log "Setup files uploaded"
   echo
 
-  Typing "Let's answer a few questions about what to set up"
+  Typing "Let's first ${Y}answer a few questions${I} about what to set up"
   local env; env=("TIMESTAMP=$Timestamp" "SSH_PORT=$Port" "TYPING=$TYPING")
   SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/survey.sh" "${Setup_Args[@]}" # Pty merges stdin and stderr
   echo
@@ -336,6 +336,10 @@ AppendPrivateKeys(){
 CleanUp(){
   local exit_code=$?
   Log "Performing cleanup..."
+
+  if (( exit_code != 0 )); then
+    Log -e "Setup exited with code $exit_code"
+  fi
 
   if [[ -S "$Ssh_Socket" ]]; then
     ssh -S "$Ssh_Socket" -O exit -p "$Port" "$User@$Host" 2>/dev/null || true
