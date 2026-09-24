@@ -36,7 +36,7 @@ Remote automation options:
     Add more users in interactive mode
   --root-password [password_hash]
     Change root password. Password should be hashed by SHA-512 or Yescrypt algorithm. Be sure to single quote it
-  --hostname [new_hostname]
+  --hostname [hostname]
     Change hostname
   --timezone [new_timezone]
     Change timezone
@@ -211,15 +211,17 @@ SetUp(){
   echo
 
   local user_record; user_record=$(SshCatFile "$Remote_Dir/new_users")
-  local new_hostname; new_hostname=$(SshCatFile "$Remote_Dir/new_hostname")
   local -a users=(); if [[ -n $user_record ]]; then
     IFS=' ' read -ra users <<< "$user_record"
   fi
 
   Typing "Before setting everything up, let's parepare needed authentication keys..."
   if (( ${#users[@]} > 0 )); then
-    local key_method=ed25519
-    CreateSshKeys "$key_method" "$new_hostname" "${users[@]}" "$User"
+    Typing "During the key generation, you will be prompted to add ${G}optional passwords${I} to secure the key further. It helps guarding the attacker even if the key is leaked"
+
+    local hostname; hostname=$(SshCatFile "$Remote_Dir/hostname")
+    local commented; mapfile -t commented <<< "$(SshCatFile "$Remote_Dir/automated_user_comments")"
+    CreateSshKeys "ed25519" "$hostname" commented "${users[@]}" "$User"
     Log "All users have their keys generated"
     echo
 
@@ -274,16 +276,12 @@ CopySetupFiles(){
 
 
 CreateSshKeys(){
-  local method=$1 hostname=$2 comments_name=$3
-  local -n comments=$comments_name
+  local method=$1 hostname=$2
+  local -n commented=$3
   local i=0 u comment
   for u in "${@:4}"; do
     Typing "Generating keys for user '$u'..."
-    comment=${comments[i]:-}
-    if [[ -z $comment ]]; then
-      comment=$(PromptForAnswer "Add ${G}comment${I} for '$u'? [Default: $u:$hostname]: " "$u:$hostname")
-    fi
-    Typing "You can have ${G}passwords${I} on top of keys. It's also generally recommended. It stops the attacher to log in even if the key is leaked"
+    comment=${commented[i]:-$u:$hostname}
     ssh-keygen -t "$method" -o -a 256 -C "$comment" -f "$Tmp_Dir/$u.$Timestamp.key"
     ((i += 1))
   done
