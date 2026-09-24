@@ -24,9 +24,9 @@ Main(){
         exit 1
     fi
 
-    local todos; mapfile -t  todos < "$Todo"
+    local todos; mapfile -t todos < "$Todo"
     for todo in "${todos[@]}"; do
-        $todo || true
+        $todo
         echo
     done
 
@@ -98,14 +98,8 @@ EnsureSudoInstalledAndEnabled(){
 
 
 AddUser(){
-    local name=$1 password=$2 home=$3 sudo=$4 shell=$5
-    local args=("useradd" "-U")
-
-    if $home; then
-        args+=("-m")
-    else
-        args+=("-M")
-    fi
+    local name=$1 password=$2 sudo=$3 shell=$4
+    local args=("useradd" "-U" "-m")
 
     if $sudo; then
         args+=("-G" "$Sudo_Group")
@@ -262,12 +256,13 @@ DisableRootLogin(){
 
 ### Packages
 UpdatePackages(){
-    AddUndo NotifyPackagesUpdated
-    if $Update_Cmd; then
-        Log "${G}All packages successfully updated${I}"
-    else
-        Log -e "Something went wrong. You need to update manually later"
-    fi
+	AddUndo NotifyPackagesUpdated
+	if $Update_Cmd; then
+		Log "${G}All packages successfully updated${I}"
+	else
+		Log -e "Something went wrong. You need to update manually later"
+		return 1
+	fi
 }
     
 
@@ -379,9 +374,14 @@ SetUpNftables(){
 
 
 ReloadSsh(){
-	Log -w "About to reload server-side SSH service. All changes will take effect for new connections. Don't worry. Established connections aren't affected"
-	systemctl reload "$Ssh_Service"
-	Log "SSH service reloaded"
+    Log "Validating SSH configuration"
+    if ! sshd -t; then
+        Log -e "SSH configuration validation failed"
+        return 1
+    fi
+    Log -w "About to reload server-side SSH service. All changes will take effect for new connections. Don't worry. Established connections aren't affected"
+    systemctl reload "$Ssh_Service"
+    Log "SSH service reloaded"
 }
 
 

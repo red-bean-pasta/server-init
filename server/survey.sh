@@ -10,8 +10,13 @@ source "$Script_Dir/common.sh"
 
 
 Todo="$Script_Dir/todo"
+New_Hostname_Record="$Script_Dir/new_hostname"
+New_User_Comments_Record="$Script_Dir/new_user_comment"
 
 New_Users=()
+New_User_Comments=()
+New_User_Automated=()
+New_Hostname=""
 
 
 ParseArgs(){
@@ -73,7 +78,15 @@ Main(){
     echo
 
     ScheduleReloadSsh
-    
+    local planned_hostname=${New_Hostname:-$(GetCurrentHostname)}
+    local i
+    for ((i = 0; i < ${#New_Users[@]}; i += 1)); do
+        if [[ ${New_User_Automated[i]} == true && -z ${New_User_Comments[i]} ]]; then
+            New_User_Comments[i]="${New_Users[i]}:$planned_hostname"
+        fi
+    done
+    printf '%s\n' "$planned_hostname" > "$New_Hostname_Record"
+    printf '%s\n' "${New_User_Comments[@]}" > "$New_User_Comments_Record"
     echo "${New_Users[@]}" > "$New_User_Record"
 }
 
@@ -122,11 +135,24 @@ AddUsers(){
     Typing "It's often ${Y}discouraged to operate as root user${I}. Root user has the utmost power and can easily cause unintentional harm. Meanwhile, normal user is intentionally restricted, effectively protecting the system. Normal user can still gain admin priviledge with the help of 'sudo', which means 'superuser do'"
     Typing "That being said, let's ${Y}create some normal users!${I}"
 
-    local index; if index=$(ValidateFlag --user 5); then
+    local index; if index=$(ValidateFlag --user 2 5); then
         local username=${Args[index+1]}
         ValidateUsername "$username" || return 1
-        AddTodo AddUser "${Args[@]:(($index+1)):5}" # [username] [password_hash] [if_create_home] [if_sudo_group] [shell] 
+        local value_count; value_count=$(GetFlagValueCount --user)
+        local password=${Args[index+2]} comment="" sudo=true shell=bash
+        if (( value_count >= 3 )) && [[ -n ${Args[index+3]} ]]; then
+            comment=${Args[index+3]}
+        fi
+        if (( value_count >= 4 )) && [[ -n ${Args[index+4]} ]]; then
+            sudo=${Args[index+4]}
+        fi
+        if (( value_count >= 5 )) && [[ -n ${Args[index+5]} ]]; then
+            shell=${Args[index+5]}
+        fi
+        AddTodo AddUser "$username" "$password" "$sudo" "$shell"
         New_Users+=("$username")
+        New_User_Comments+=("$comment")
+        New_User_Automated+=(true)
     fi
 
     if $Interactive || [[ -n ${Flag_Indexes[--more-users]:-} ]]; then
@@ -145,9 +171,6 @@ InteractiveAddUser(){
         fi
         
         local password; password=$(GetPasswordAndHash)
-
-        Typing "A home is where the user stores its own files and install their own applications without affecting others. Users normally have their own homes"
-        local home; home=$(PromptForYesNo "Give '$username' a ${G}home${I}? (Y/n): " Y && echo true || echo false)
 
         local sudo; sudo=$(PromptForYesNo "Add '$username' to ${G}sudo group${I}? (y/n):  " && echo true || echo false)
 
@@ -168,8 +191,10 @@ InteractiveAddUser(){
             Typing -e "Unknown shell. Let's try again"
         done
 
-        AddTodo AddUser "$username" "$password" "$home" "$sudo" "$shell" 
+        AddTodo AddUser "$username" "$password" "$sudo" "$shell"
         New_Users+=("$username")
+        New_User_Comments+=("")
+        New_User_Automated+=(false)
 
         PromptForYesNo "Add ${G}more${I} users? (y/n): " && more=true || more=false
         ((count++))
@@ -184,6 +209,8 @@ EnsureSudoInstalledAndEnabled(){
 
 
 AddPublicKeys(){
+    (( ${#New_Users[@]} == 0 )) && return 0
+
     Typing "Let's also make sure that ${Y}SSH public keys${I} found at $Script_Dir will be ${Y}added${I} to corresponding user. Once added, one can then sign in as that user providing matching private key"
     AddTodo AddPublicKeys
 }
@@ -220,6 +247,7 @@ ChangeHostname(){
     local index; if index=$(ValidateFlag --hostname 1); then
         if ValidateHostname "${Args[index+1]}"; then
             AddTodo ChangeHostname "$(GetCurrentHostname)" "${Args[index+1]}"
+            New_Hostname=${Args[index+1]}
         else
             return 1
         fi
@@ -245,6 +273,7 @@ InteractiveChangeHostname(){
         [[ -z $new ]] && return 0
         if ValidateHostname "$new"; then
             AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
+            New_Hostname=$new
             return 0
         fi
         Typing "Invalid hostname. Let's try again"
@@ -356,7 +385,7 @@ EnablePublicKeyAuthentication(){
 DisablePasswordLogin(){
     Typing "It's suggested to ${Y}disable password login${I} completely to minimize the risk of brute-force or dictionary attack"
     
-    SlientValidateFlag --disable-password && AddTodo DisablePasswordLogin
+    SilentValidateFlag --disable-password && AddTodo DisablePasswordLogin
 
     DoIfInteractive InteractiveDisablePasswordLogin
 }
@@ -373,7 +402,7 @@ DisableRootLogin(){
     Typing "It's suggested to ${Y}disable root login${I}, especially if password auth haven't been disabled. You can still switch to root user from normal user with command \`su\`"
     Typing "Technically you can keep root login if password login is disabled, but since operating as normal users is advised, so..."
 
-    SlientValidateFlag --disable-root && AddTodo DisableRootLogin
+    SilentValidateFlag --disable-root && AddTodo DisableRootLogin
 
     DoIfInteractive InteractiveDisableRootLogin
 }
@@ -390,7 +419,7 @@ InteractiveDisableRootLogin(){
 UpdatePackages(){
     Typing "The system from your server provider may often be less up-to-date. It's recommended to ${Y}update all of them${I} especially if there are security patches"
     
-    SlientValidateFlag --update && AddTodo UpdatePackages
+    SilentValidateFlag --update && AddTodo UpdatePackages
 
     DoIfInteractive InteractiveUpdatePackages
 }
@@ -410,9 +439,9 @@ InstallFirewall(){
     Typing "${G}UFW${I} stands for Uncomplicated Firewall. It's a simple yet user-friendly firewall tool built on iptables. It's shipped with Ubuntu"
     Typing "${G}Firewalld${I} is powerful yet more complex comparing to UFW. It's built-in in RHEL-based distros like Fedora or CentOS"
 
-    SlientValidateFlag --ufw && AddTodo SetUpUfw
-    SlientValidateFlag --firewalld && AddTodo SetUpFirewalld
-    SlientValidateFlag --nftables && AddTodo SetUpNftables
+    SilentValidateFlag --ufw && AddTodo SetUpUfw
+    SilentValidateFlag --firewalld && AddTodo SetUpFirewalld
+    SilentValidateFlag --nftables && AddTodo SetUpNftables
 
     DoIfInteractive InteractiveInstallFirewall
 }
@@ -438,7 +467,7 @@ InstallFail2Ban(){
     Typing "It has rich and powerful features like increment fail time randomly, send mails and report malicious IP. Many of them require manual setup, but it still works out of box with default protection over many protocols, including SSH"
     Typing "However, it's not strictly neccessary, especially if password auth is already disabled"
 
-    SlientValidateFlag --fail2ban && AddTodo SetUpFail2Ban
+    SilentValidateFlag --fail2ban && AddTodo SetUpFail2Ban
 
     DoIfInteractive InteractiveInstallFail2Ban
 }
@@ -480,7 +509,7 @@ GetPasswordAndHash(){
 }
 
 
-SlientValidateFlag(){
+SilentValidateFlag(){
     ValidateFlag "$@" >/dev/null
 }
 
@@ -489,15 +518,21 @@ ValidateFlag(){
     local index; index=${Flag_Indexes[$flag]:-}
     [[ -z $index ]] && return 1
 
-    local order; order=$(IndexArrayValue Flags "$flag")
-    local next_flag=${Flags[order+1]:-}
-    local next_flag_index; next_flag_index=$([[ -n "$next_flag" ]] && echo "${Flag_Indexes[$next_flag]}" || echo "${#Args[@]}")
-    local value_count=$((next_flag_index - index - 1))
+    local value_count; value_count=$(GetFlagValueCount "$flag")
     if [[ $value_count -lt $min ]] || [[ $value_count -gt $max ]]; then
         Log "Invalid $flag argument: Expecting $([[ $min -eq $max ]] && echo "$min" || echo "$min-$max") values, received $value_count" 
         exit 1
     fi
     echo "$index"
+}
+
+
+GetFlagValueCount(){
+    local flag=$1 index=${Flag_Indexes[$1]:-}
+    local order; order=$(IndexArrayValue Flags "$flag")
+    local next_flag=${Flags[order+1]:-}
+    local next_flag_index=$([[ -n "$next_flag" ]] && echo "${Flag_Indexes[$next_flag]}" || echo "${#Args[@]}")
+    echo $((next_flag_index - index - 1))
 }
 
 
