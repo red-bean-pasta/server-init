@@ -1,0 +1,73 @@
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet raw {
+    chain prerouting {
+        type filter hook prerouting priority raw;
+
+        # Drops new TCP connections that do not have the SYN flag set
+        tcp flags & (fin|syn|rst|ack) != syn ct state new drop
+
+        # Drops NULL packets, meaning TCP packets with no flags set
+        tcp flags & (fin|syn|rst|psh|ack|urg) == 0 drop
+
+        # Drops TCP packets with all flags set, known as XMAS packets.
+        tcp flags & (fin|syn|rst|psh|ack|urg) == (fin|syn|rst|psh|ack|urg) drop
+    }
+}
+
+
+table inet filter {
+
+    set ipv4_blackroom {
+        type ipv4_addr
+        flags dynamic, timeout
+        timeout 1m
+    }
+
+    set ipv6_blackroom {
+        type ipv6_addr
+        flags dynamic, timeout
+        timeout 1m
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        # Connection tracking
+        ct state {established, related} accept
+        ct state invalid drop
+
+        # Local interface
+        iifname lo accept
+        # Drop external request to local addr to anti-proof
+        iifname != lo ip saddr 127.0.0.0/8 drop
+        iifname != lo ip6 saddr ::1 drop
+
+        # ICMP/ICMPv6 - essential only
+        meta l4proto {icmp, ipv6-icmp} limit rate 20/second accept
+
+        # Blackroom for TCP connections
+        meta nfproto ipv4 tcp flags & (fin|syn|rst|ack) == syn limit rate over 50/second add @ipv4_blackroom { ip saddr } drop
+        meta nfproto ipv6 tcp flags & (fin|syn|rst|ack) == syn limit rate over 50/second add @ipv6_blackroom { ip6 saddr } drop
+
+        # Blackroom for UDP connections
+        meta nfproto ipv4 ip protocol udp limit rate over 1200/second add @ipv4_blackroom { ip saddr } drop
+        meta nfproto ipv6 ip6 nexthdr udp limit rate over 1200/second add @ipv6_blackroom { ip6 saddr } drop
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+
+        # Connection tracking
+        ct state {established, related} accept
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+
+        # Connection tracking for output
+        ct state invalid drop
+    }
+}
