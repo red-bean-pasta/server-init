@@ -156,7 +156,7 @@ AddPublicKeys(){
   local user home record key_name
   for key in "${keys[@]}"; do
     key_name=$(basename "$key")
-    user=${key_name%.$TIMESTAMP.key.pub}
+    user=${key_name%.key.pub}
     home=$(getent passwd "$user" | cut -d: -f6)
     record="$home/.ssh/authorized_keys"
 

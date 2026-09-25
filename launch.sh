@@ -231,7 +231,7 @@ SetUp(){
   echo
 
   Typing "Uploading the public login keys to the server"
-  UploadPublicKeys
+  UploadPublicKeys "${users[@]}" "$User"
   Log "All public keys uploaded"
   echo
 
@@ -247,8 +247,8 @@ SetUp(){
   fi
   Typing "Trying to log in and disable nuclear recovery timer..."
   if TryLogInDisableTimer "$new_port" "$hero"; then
-    Typing "Adding the generated private keys to $HOME/.ssh/id_ed25519"
-    AppendPrivateKeys
+    Typing "Moving the generated private keys to $HOME/.ssh/id_ed25519.d"
+    MovePrivateKeys
   else
     Typing -e "Attempt failed. Recovery will happen"
     return 1
@@ -284,6 +284,7 @@ CopySetupFiles(){
 
 CreateSshKeys(){
   local method=ed25519
+  local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname") # nameref isn't supported on the legacy MacOS bash
 
   local automated=false
   if SshRunCommand test -f "$Remote_Dir/automated_ssh_passwords"; then
@@ -293,7 +294,6 @@ CreateSshKeys(){
   local -a comments=() passwords=()
   local cmt pwd
   if [[ $automated == true ]]; then
-    local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname") # nameref isn't supported on the legacy MacOS bash
     local commented; commented=$(SshCatFile "$Remote_Dir/automated_ssh_comments")
     local passworded; passworded=$(SshCatFile "$Remote_Dir/automated_ssh_passwords")
     local line
@@ -309,7 +309,7 @@ CreateSshKeys(){
   local -a commands
   local user; for user in "$@"; do
     Typing "Generating login key for '$user'"
-    commands=(ssh-keygen -t "$method" -o -a 256 -f "$Tmp_Dir/$user.$Timestamp.key")
+    commands=(ssh-keygen -t "$method" -o -a 256 -f "$Tmp_Dir/${hostname}_${user}.key")
     if [[ $automated == false ]]; then
       "${commands[@]}"
     else
@@ -324,6 +324,15 @@ CreateSshKeys(){
 
 
 UploadPublicKeys(){
+  local user; for user in "$@"; do
+    local -a keys=("$Tmp_Dir"/*_"$user".key.pub)
+    if (( ${#keys[@]} != 1 )) || [[ ! -f ${keys[0]} ]]; then
+      Typing -e "Could not find the generated public key for '$user'"
+      return 1
+    fi
+    mv "${keys[0]}" "$Tmp_Dir/$user.key.pub"
+  done
+
   local name="keys.tar.gz"
   local archive="$Tmp_Dir/$name"
   (cd "$Tmp_Dir" && tar -czf "$archive" ./*.pub)
@@ -334,7 +343,8 @@ UploadPublicKeys(){
 
 TryLogInDisableTimer(){
   local port=$1 user=$2
-  local key; key="$Tmp_Dir/$user.$Timestamp.key"
+  local -a keys=("$Tmp_Dir"/*_"$user".key)
+  local key=${keys[0]}
   local cancel_file; cancel_file="$Remote_Dir.cancel"
   local -a ssh_args=(-p "$port" -i "$key" -o PasswordAuthentication=no)
   if [[ ${Accept_New_Host:-false} == true ]]; then
@@ -351,17 +361,17 @@ TryLogInDisableTimer(){
 }
 
 
-AppendPrivateKeys(){
-  local target="$HOME/.ssh/id_ed25519"
-  mkdir -p "$HOME/.ssh"
+MovePrivateKeys(){
+  local target="$HOME/.ssh/id_ed25519.d"
+  mkdir -p "$target"
+  chmod 700 "$target"
 
   local k; for k in "$Tmp_Dir"/*.key; do
     [[ -f $k ]] || continue
-    cat "$k" >> "$target"
+    mv "$k" "$target/$(basename "$k")"
   done
 
-  chmod 600 "$target"
-  rm -f "$Tmp_Dir"/*.key "$Tmp_Dir"/*.pub
+  rm -f "$Tmp_Dir"/*.pub
 }
 
 
