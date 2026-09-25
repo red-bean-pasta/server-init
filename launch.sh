@@ -32,14 +32,14 @@ Connection options:
     Automatically accept a new SSH host key for setup and final verification SSH connections
 
 Remote automation options:
-  --user [username] [password-hash] [if-sudo (default: true)] [optional: shell (default: bash)] [ssh-key-comment (default: username:hostname)] [optional: ssh-key-password]
+  --user [username] [password-hash] [if-sudo (default: true)] [shell (default: bash)] [ssh-key-password (default: "")] [ssh-key-comment (default: username:hostname)]
     Create a new user with a home directory
     password-hash should be a SHA-512 or Yescrypt hash and single quoted because it may contain special characters
-    The optional ssh-key-password should be plaintext and single quoted
-  --root [optional: new-password-hash] [optional: ssh-key-comment (default: root:hostname)] [optional: ssh-key-password]
+    The optional ssh-key-password should be plaintext and single quoted. Pass "" to skip adding password
+  --root [new-password-hash] [ssh-key-password (default: "")] [ssh-key-comment (default: root:hostname)]
     Change the root password and prepare its SSH key
-    Pass "" as new-password-hash to keep the current root password
-    The optional ssh-key-password should be plaintext and single quoted
+    new-password-hash should be a SHA-512 or Yescrypt hash and single quoted. Pass "" as new-password-hash to keep the current root password
+    The optional ssh-key-password should be plaintext and single quoted. Pass "" to skip adding password
   --hostname [hostname]
     Change the server's hostname
   --timezone [new_timezone]
@@ -284,28 +284,40 @@ CopySetupFiles(){
 
 CreateSshKeys(){
   local method=ed25519
-  local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname") # nameref isn't supported on the legacy MacOS bash
-  local commented; commented=$(SshCatFile "$Remote_Dir/automated_ssh_comments")
-  local passworded; passworded=$(SshCatFile "$Remote_Dir/automated_ssh_passwords")
-  local -a comments=() passwords=()
-  local line
-  while IFS= read -r line || [[ -n $line ]]; do
-    comments+=("$line")
-  done <<< "$commented"
-  while IFS= read -r line || [[ -n $line ]]; do
-    passwords+=("$line")
-  done <<< "$passworded"
 
-  local i=0; local user cmt pwd; local -a commands
-  for user in "$@"; do
-    Typing "Generating a login key for '$user'"
-    cmt=${comments[i]:-$user:$hostname}
-    pwd=${passwords[i]-}
-    commands=(ssh-keygen -t "$method" -o -a 256 -C "$cmt" -f "$Tmp_Dir/$user.$Timestamp.key")
-    if [[ -n $pwd ]]; then
-      commands+=(-N "$pwd")
+  local automated=false
+  if SshRunCommand test -f "$Remote_Dir/automated_ssh_passwords"; then
+    automated=true
+  fi
+
+  local -a comments=() passwords=()
+  local cmt pwd
+  if [[ $automated == true ]]; then
+    local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname") # nameref isn't supported on the legacy MacOS bash
+    local commented; commented=$(SshCatFile "$Remote_Dir/automated_ssh_comments")
+    local passworded; passworded=$(SshCatFile "$Remote_Dir/automated_ssh_passwords")
+    local line
+    while IFS= read -r line || [[ -n $line ]]; do
+      comments+=("$line")
+    done <<< "$commented"
+    while IFS= read -r line || [[ -n $line ]]; do
+      passwords+=("$line")
+    done <<< "$passworded"
+  fi
+
+  local i=0
+  local -a commands
+  local user; for user in "$@"; do
+    Typing "Generating login key for '$user'"
+    commands=(ssh-keygen -t "$method" -o -a 256 -f "$Tmp_Dir/$user.$Timestamp.key")
+    if [[ $automated == false ]]; then
+      "${commands[@]}"
+    else
+      cmt=${comments[i]:-$user:$hostname}
+      pwd=${passwords[i]-}
+      commands+=(-C "$cmt" -N "$pwd")
+      "${commands[@]}"
     fi
-    "${commands[@]}"
     ((i += 1))
   done
 }

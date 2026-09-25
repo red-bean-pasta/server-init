@@ -83,8 +83,10 @@ Main(){
 
   local new_hostname=${New_Hostname:-$(GetCurrentHostname)}
   printf '%s\n' "$new_hostname" > "$New_Hostname_Record"
-  printf '%s\n' "${Automated_Ssh_Comments[@]}" "$Root_Ssh_Comment" > "$Automated_Ssh_Comments_Record"
-  printf '%s\n' "${Automated_Ssh_Passwords[@]}" "$Root_Ssh_Password" > "$Automated_Ssh_Passwords_Record"
+  if (( ${#Automated_Ssh_Comments[@]} > 0 )) || [[ -n ${Flag_Indexes[--root]:-} ]]; then
+    printf '%s\n' "${Automated_Ssh_Comments[@]}" "$Root_Ssh_Comment" > "$Automated_Ssh_Comments_Record"
+    printf '%s\n' "${Automated_Ssh_Passwords[@]}" "$Root_Ssh_Password" > "$Automated_Ssh_Passwords_Record"
+  fi
   printf '%s ' "${New_Users[@]}" > "$New_User_Record"
 }
 
@@ -163,14 +165,14 @@ AddUsers(){
       shell=${Args[index+4]}
     fi
 
-    local ssh_key_comment=""
-    if (( value_count >= 5 )) && [[ -n ${Args[index+5]} ]]; then
-      ssh_key_comment=${Args[index+5]}
+    local ssh_key_password=""
+    if (( value_count >= 5 )); then
+      ssh_key_password=${Args[index+5]}
     fi
 
-    local ssh_key_password=""
-    if (( value_count >= 6 )); then
-      ssh_key_password=${Args[index+6]}
+    local ssh_key_comment=""
+    if (( value_count >= 6 )) && [[ -n ${Args[index+6]} ]]; then
+      ssh_key_comment=${Args[index+6]}
     fi
 
     AddTodo AddUser "$username" "$password" "$sudo" "$shell"
@@ -213,8 +215,6 @@ InteractiveAddUser(){
 
     AddTodo AddUser "$username" "$password" "$sudo" "$shell"
     New_Users+=("$username")
-    Automated_Ssh_Comments+=("")
-    Automated_Ssh_Passwords+=("")
 
     PromptForYesNo "Add ${G}more${I} users? (y/n): " && more=true || more=false
     ((count++))
@@ -252,10 +252,10 @@ ChangeRootPassword(){
       fi
     fi
     if (( value_count >= 2 )); then
-      Root_Ssh_Comment=${Args[index+2]}
+      Root_Ssh_Password=${Args[index+2]}
     fi
     if (( value_count >= 3 )); then
-      Root_Ssh_Password=${Args[index+3]}
+      Root_Ssh_Comment=${Args[index+3]}
     fi
   fi
 
