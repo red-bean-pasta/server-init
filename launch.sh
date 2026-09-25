@@ -7,7 +7,7 @@ Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/helpers.sh
 source "$Script_Dir/lib/helpers.sh"
 
-declare Host User Port Timestamp Tmp_Dir Ssh_Socket Remote_Dir
+declare Host User Port Accept_New_Host Timestamp Tmp_Dir Ssh_Socket Remote_Dir
 
 Setup_Args=()
 
@@ -28,14 +28,18 @@ Connection options:
     Server address or domain
   --port
     SSH port used to connect to the server
+  --accept-new-host
+    Automatically accept a new SSH host key for setup and final verification SSH connections
 
 Remote automation options:
-  --user [username] [password_hash] [key_comment (default: username:hostname)] [if_sudo_group (default: true)] [optional: shell (default: bash)]
-    Create a new user with a home directory. Use a SHA-512 or Yescrypt password hash and put it in single quotes because it may contain special characters
-  --more-users
-    Add more users interactively
-  --root-password [password_hash]
-    Change the root password. Use a SHA-512 or Yescrypt password hash and put it in single quotes because it may contain special characters
+  --user [username] [password-hash] [if-sudo (default: true)] [optional: shell (default: bash)] [ssh-key-comment (default: username:hostname)] [optional: ssh-key-password]
+    Create a new user with a home directory
+    password-hash should be a SHA-512 or Yescrypt hash and single quoted because it may contain special characters
+    The optional ssh-key-password should be plaintext and single quoted
+  --root [optional: new-password-hash] [optional: ssh-key-comment (default: root:hostname)] [optional: ssh-key-password]
+    Change the root password and prepare its SSH key
+    Pass "" as new-password-hash to keep the current root password
+    The optional ssh-key-password should be plaintext and single quoted
   --hostname [hostname]
     Change the server's hostname
   --timezone [new_timezone]
@@ -122,6 +126,10 @@ ParseArgs(){
         ;;
       --typing)
         TYPING=true
+        shift
+        ;;
+      --accept-new-host)
+        Accept_New_Host=true
         shift
         ;;
       --host)
@@ -216,21 +224,16 @@ SetUp(){
   fi
 
   Typing "Before applying the changes, let's prepare the login keys"
-  if (( ${#users[@]} > 0 )); then
-    Typing "During key generation, SSH will ask whether to protect each private key with a password. This adds protection if the key is leaked"
+  Typing "During key generation, SSH will ask whether to protect each private key with a password. This adds protection if the key is leaked"
 
-    CreateSshKeys "${users[@]}" "$User"
-    Log "Login keys generated for all users"
-    echo
+  CreateSshKeys "${users[@]}" "$User"
+  Log "Login keys generated for all users"
+  echo
 
-    Typing "Uploading the public login keys to the server"
-    UploadPublicKeys
-    Log "All public keys uploaded"
-    echo
-  else
-    Log "No user created. Skipping"
-    echo
-  fi
+  Typing "Uploading the public login keys to the server"
+  UploadPublicKeys
+  Log "All public keys uploaded"
+  echo
 
   Typing "Applying the selected server changes"
   SshRunCommandWithPty "${env[@]}" bash "$Remote_Dir/setup.sh"
@@ -259,10 +262,13 @@ CreateMasterSshConnection(){
     "-f" "-M" "-N"
     "-o" "ControlPath=$Ssh_Socket"
     "-o" "ControlPersist=yes"
-    "-p" "$Port"
-    "$User@$Host"
   )
+  if [[ ${Accept_New_Host:-false} == true ]]; then
+    cmds+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+  fi
+  cmds+=(-p "$Port")
   [[ -n "${1:-}" ]] && cmds+=(-i "$1")
+  cmds+=("$User@$Host")
   "${cmds[@]}"
 }
 
@@ -278,18 +284,28 @@ CopySetupFiles(){
 
 CreateSshKeys(){
   local method=ed25519
-  local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname")
-  local automated_user_comments; automated_user_comments=$(SshCatFile "$Remote_Dir/automated_user_comments")
-  local -a commented=()
-  local line; while IFS= read -r line || [[ -n $line ]]; do
-    commented+=("$line")
-  done <<< "$automated_user_comments"
+  local hostname; hostname=$(SshCatFile "$Remote_Dir/new_hostname") # nameref isn't supported on the legacy MacOS bash
+  local commented; commented=$(SshCatFile "$Remote_Dir/automated_ssh_comments")
+  local passworded; passworded=$(SshCatFile "$Remote_Dir/automated_ssh_passwords")
+  local -a comments=() passwords=()
+  local line
+  while IFS= read -r line || [[ -n $line ]]; do
+    comments+=("$line")
+  done <<< "$commented"
+  while IFS= read -r line || [[ -n $line ]]; do
+    passwords+=("$line")
+  done <<< "$passworded"
 
-  local i=0 u comment
-  for u in "$@"; do
-    Typing "Generating a login key for '$u'"
-    comment=${commented[i]:-$u:$hostname}
-    ssh-keygen -t "$method" -o -a 256 -C "$comment" -f "$Tmp_Dir/$u.$Timestamp.key"
+  local i=0; local user cmt pwd; local -a commands
+  for user in "$@"; do
+    Typing "Generating a login key for '$user'"
+    cmt=${comments[i]:-$user:$hostname}
+    pwd=${passwords[i]-}
+    commands=(ssh-keygen -t "$method" -o -a 256 -C "$cmt" -f "$Tmp_Dir/$user.$Timestamp.key")
+    if [[ -n $pwd ]]; then
+      commands+=(-N "$pwd")
+    fi
+    "${commands[@]}"
     ((i += 1))
   done
 }
@@ -308,8 +324,12 @@ TryLogInDisableTimer(){
   local port=$1 user=$2
   local key; key="$Tmp_Dir/$user.$Timestamp.key"
   local cancel_file; cancel_file="$Remote_Dir.cancel"
+  local -a ssh_args=(-p "$port" -i "$key" -o PasswordAuthentication=no)
+  if [[ ${Accept_New_Host:-false} == true ]]; then
+    ssh_args+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+  fi
   Typing "Trying to log in as '$user' with key at $key..."
-  if ssh -p "$port" -i "$key" -o PasswordAuthentication=no "$user@$Host" "touch '$cancel_file' && [ -f '$cancel_file' ]"; then
+  if ssh "${ssh_args[@]}" "$user@$Host" "touch '$cancel_file' && [ -f '$cancel_file' ]"; then
     Typing "Recovery timer cancellation ordered"
     return 0
   else

@@ -430,7 +430,7 @@ ReloadSsh(){
 Install(){
   AddUndo Uninstall "$@"
   Log "Installing $*"
-  if $Install_Cmd "$@"; then
+  if DEBIAN_FRONTEND=noninteractive $Install_Cmd "$@"; then
   Log "Installed $*"
   else
   Log -e "Could not install $*. You may need to install it manually later"

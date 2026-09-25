@@ -12,10 +12,14 @@ source "$Script_Dir/common.sh"
 Todo="$Script_Dir/todo"
 New_User_Record="$Script_Dir/new_users"
 New_Hostname_Record="$Script_Dir/new_hostname"
-Automated_Comments_Record="$Script_Dir/automated_user_comments"
+Automated_Ssh_Comments_Record="$Script_Dir/automated_ssh_comments"
+Automated_Ssh_Passwords_Record="$Script_Dir/automated_ssh_passwords"
 
 New_Users=()
-New_User_Comments=()
+Automated_Ssh_Comments=()
+Automated_Ssh_Passwords=()
+Root_Ssh_Comment=""
+Root_Ssh_Password=""
 New_Hostname=""
 
 ParseArgs(){
@@ -79,7 +83,8 @@ Main(){
 
   local new_hostname=${New_Hostname:-$(GetCurrentHostname)}
   printf '%s\n' "$new_hostname" > "$New_Hostname_Record"
-  printf '%s\n' "${New_User_Comments[@]}" > "$Automated_Comments_Record"
+  printf '%s\n' "${Automated_Ssh_Comments[@]}" "$Root_Ssh_Comment" > "$Automated_Ssh_Comments_Record"
+  printf '%s\n' "${Automated_Ssh_Passwords[@]}" "$Root_Ssh_Password" > "$Automated_Ssh_Passwords_Record"
   printf '%s ' "${New_Users[@]}" > "$New_User_Record"
 }
 
@@ -139,29 +144,42 @@ AddUsers(){
   Typing "Operating as the root user is ${Y}discouraged${I} because root has full control and a mistake can harm the system. A normal user has fewer privileges and can still perform administrator tasks through 'sudo', which means 'superuser do'"
   Typing "Let's create a ${Y}normal user${I}"
 
-  local index; if index=$(ValidateFlag --user 2 5); then
+  local index; if index=$(ValidateFlag --user 2 6); then
+    local value_count; value_count=$(GetFlagValueCount --user)
+
     local username=${Args[index+1]}
     ValidateUsername "$username" || return 1
-    local value_count; value_count=$(GetFlagValueCount --user)
-    local password=${Args[index+2]} comment="" sudo=true shell=bash
+
+    local password=${Args[index+2]}
     ValidatePasswordHash "$password" || return 1
+
+    local sudo=true
     if (( value_count >= 3 )) && [[ -n ${Args[index+3]} ]]; then
-      comment=${Args[index+3]}
+      sudo=${Args[index+3]}
     fi
+
+    local shell=bash
     if (( value_count >= 4 )) && [[ -n ${Args[index+4]} ]]; then
-      sudo=${Args[index+4]}
+      shell=${Args[index+4]}
     fi
+
+    local ssh_key_comment=""
     if (( value_count >= 5 )) && [[ -n ${Args[index+5]} ]]; then
-      shell=${Args[index+5]}
+      ssh_key_comment=${Args[index+5]}
     fi
+
+    local ssh_key_password=""
+    if (( value_count >= 6 )); then
+      ssh_key_password=${Args[index+6]}
+    fi
+
     AddTodo AddUser "$username" "$password" "$sudo" "$shell"
     New_Users+=("$username")
-    New_User_Comments+=("$comment")
+    Automated_Ssh_Comments+=("$ssh_key_comment")
+    Automated_Ssh_Passwords+=("$ssh_key_password")
   fi
 
-  if $Interactive || [[ -n ${Flag_Indexes[--more-users]:-} ]]; then
-    InteractiveAddUser
-  fi
+  DoIfInteractive InteractiveAddUser
 }
 
 
@@ -195,7 +213,8 @@ InteractiveAddUser(){
 
     AddTodo AddUser "$username" "$password" "$sudo" "$shell"
     New_Users+=("$username")
-    New_User_Comments+=("")
+    Automated_Ssh_Comments+=("")
+    Automated_Ssh_Passwords+=("")
 
     PromptForYesNo "Add ${G}more${I} users? (y/n): " && more=true || more=false
     ((count++))
@@ -222,9 +241,22 @@ ChangeRootPassword(){
   Typing "You may sometimes need to switch to the root user, so you may want to ${Y}change the root password${I} to something easier to remember"
   Typing -w "This is recommended only when password or root login is disabled. Otherwise, a randomly generated password is safer"
 
-  local index; if index=$(ValidateFlag --root-password 1); then
-    ValidatePasswordHash "${Args[index+1]}" || exit 1
-    AddTodo ChangeRootPassword "${Args[index+1]}"
+  local index; if index=$(ValidateFlag --root 0 3); then
+    local value_count; value_count=$(GetFlagValueCount --root)
+    local password_hash=""
+    if (( value_count >= 1 )); then
+      password_hash=${Args[index+1]}
+      if [[ -n $password_hash ]]; then
+        ValidatePasswordHash "$password_hash" || exit 1
+        AddTodo ChangeRootPassword "$password_hash"
+      fi
+    fi
+    if (( value_count >= 2 )); then
+      Root_Ssh_Comment=${Args[index+2]}
+    fi
+    if (( value_count >= 3 )); then
+      Root_Ssh_Password=${Args[index+3]}
+    fi
   fi
 
   DoIfInteractive InteractiveChangeRootPassword
