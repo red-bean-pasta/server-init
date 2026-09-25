@@ -92,10 +92,11 @@ HelpIfNeeded(){
 
 
 Launch(){
+  ParseArgs "$@"
+  AssertLocalDependencies
+
   InitializeRuntime
   trap CleanUp EXIT INT TERM HUP PIPE
-
-  ParseArgs "$@"
 
   CheckIfTyping
   echo
@@ -105,6 +106,12 @@ Launch(){
 
   SetUp
 }
+
+
+AssertLocalDependencies(){
+  AssertCommandsAvailable ssh sftp ssh-keygen tar gzip
+}
+
 
 InitializeRuntime(){
   Timestamp=$(date -u +"%Y%m%dT%H%M%S")

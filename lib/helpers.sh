@@ -26,6 +26,37 @@ CheckIfInstalled(){
 }
 
 
+AssertCommandsAvailable(){
+  local dependency; local missing=()
+  for dependency in "$@"; do
+    if ! command -v "$dependency" >/dev/null 2>&1; then
+      missing+=("$dependency")
+    fi
+  done
+
+  if (( ${#missing[@]} > 0 )); then
+    Log -e "Missing required dependencies: ${missing[*]}"
+    return 1
+  fi
+
+  return 0
+}
+
+
+AssertBashVersion(){
+  local required_major=$1 required_minor=$2
+  if ((
+    BASH_VERSINFO[0] < required_major
+    || (BASH_VERSINFO[0] == required_major && BASH_VERSINFO[1] < required_minor)
+  )); then
+    Log -e "Bash ${required_major}.${required_minor} or newer is required. Found $BASH_VERSION"
+    return 1
+  fi
+
+  return 0
+}
+
+
 CheckIfValidPort(){
   [[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }

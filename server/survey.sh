@@ -22,6 +22,13 @@ Root_Ssh_Comment=""
 Root_Ssh_Password=""
 New_Hostname=""
 
+AssertRemoteDependencies(){
+  AssertBashVersion 4 3
+  AssertCommandsAvailable systemctl tar gzip
+}
+
+AssertRemoteDependencies
+
 ParseArgs(){
   local -n _flags=$1 _indexes=$2; shift 2
   local i=0; local arg; for arg in "$@"; do
@@ -281,9 +288,11 @@ ChangeHostname(){
   Typing "Current hostname: $(GetCurrentHostname)"
 
   local index; if index=$(ValidateFlag --hostname 1); then
-    if ValidateHostname "${Args[index+1]}"; then
-      AddTodo ChangeHostname "$(GetCurrentHostname)" "${Args[index+1]}"
-      New_Hostname=${Args[index+1]}
+    local new=${Args[index+1]}
+    if ValidateHostname "$new"; then
+      AssertCommandsAvailable hostnamectl || return 1
+      AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
+      New_Hostname=$new
     else
       return 1
     fi
@@ -308,6 +317,7 @@ InteractiveChangeHostname(){
     new=${new// /-}
     [[ -z $new ]] && return 0
     if ValidateHostname "$new"; then
+      AssertCommandsAvailable hostnamectl || return 1
       AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
       New_Hostname=$new
       return 0
