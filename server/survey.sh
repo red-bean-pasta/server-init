@@ -42,10 +42,11 @@ ParseArgs(){
 Args=("$@")
 Interactive=$([[ $# -gt 0 ]] && echo false || echo true)
 declare -a Flags; declare -A Flag_Indexes; ParseArgs Flags Flag_Indexes "${Args[@]}"
+Flag_Index=""
 
 
 Main(){
-  trap CleanUp INT TERM HUP
+  trap CleanUp EXIT INT TERM HUP
 
   InitializeSystemInfo
   echo
@@ -100,6 +101,7 @@ Main(){
 
 CleanUp(){
   local exit_code=$?
+  trap - EXIT INT TERM HUP
   Log "Cleaning up the temporary survey files" # May not show up in TTY as SSH is already detached
   RemoveDirectory "$Script_Dir"
   exit "$exit_code"
@@ -153,33 +155,34 @@ AddUsers(){
   Typing "Operating as the root user is ${Y}discouraged${I} because root has full control and a mistake can harm the system. A normal user has fewer privileges and can still perform administrator tasks through 'sudo', which means 'superuser do'"
   Typing "Let's create a ${Y}normal user${I}"
 
-  local index; if index=$(ValidateFlag --user 2 6); then
+  if [[ -n ${Flag_Indexes[--user]:-} ]]; then
+    ValidateFlag --user 2 6
     local value_count; value_count=$(GetFlagValueCount --user)
 
-    local username=${Args[index+1]}
+    local username=${Args[Flag_Index+1]}
     ValidateUsername "$username" || return 1
 
-    local password=${Args[index+2]}
+    local password=${Args[Flag_Index+2]}
     ValidatePasswordHash "$password" || return 1
 
     local sudo=true
-    if (( value_count >= 3 )) && [[ -n ${Args[index+3]} ]]; then
-      sudo=${Args[index+3]}
+    if (( value_count >= 3 )) && [[ -n ${Args[Flag_Index+3]} ]]; then
+      sudo=${Args[Flag_Index+3]}
     fi
 
     local shell=bash
-    if (( value_count >= 4 )) && [[ -n ${Args[index+4]} ]]; then
-      shell=${Args[index+4]}
+    if (( value_count >= 4 )) && [[ -n ${Args[Flag_Index+4]} ]]; then
+      shell=${Args[Flag_Index+4]}
     fi
 
     local ssh_key_password=""
     if (( value_count >= 5 )); then
-      ssh_key_password=${Args[index+5]}
+      ssh_key_password=${Args[Flag_Index+5]}
     fi
 
     local ssh_key_comment=""
-    if (( value_count >= 6 )) && [[ -n ${Args[index+6]} ]]; then
-      ssh_key_comment=${Args[index+6]}
+    if (( value_count >= 6 )) && [[ -n ${Args[Flag_Index+6]} ]]; then
+      ssh_key_comment=${Args[Flag_Index+6]}
     fi
 
     AddTodo AddUser "$username" "$password" "$sudo" "$shell"
@@ -248,21 +251,22 @@ ChangeRootPassword(){
   Typing "You may sometimes need to switch to the root user, so you may want to ${Y}change the root password${I} to something easier to remember"
   Typing -w "This is recommended only when password or root login is disabled. Otherwise, a randomly generated password is safer"
 
-  local index; if index=$(ValidateFlag --root 0 3); then
+  if [[ -n ${Flag_Indexes[--root]:-} ]]; then
+    ValidateFlag --root 0 3
     local value_count; value_count=$(GetFlagValueCount --root)
     local password_hash=""
     if (( value_count >= 1 )); then
-      password_hash=${Args[index+1]}
+      password_hash=${Args[Flag_Index+1]}
       if [[ -n $password_hash ]]; then
         ValidatePasswordHash "$password_hash" || exit 1
         AddTodo ChangeRootPassword "$password_hash"
       fi
     fi
     if (( value_count >= 2 )); then
-      Root_Ssh_Password=${Args[index+2]}
+      Root_Ssh_Password=${Args[Flag_Index+2]}
     fi
     if (( value_count >= 3 )); then
-      Root_Ssh_Comment=${Args[index+3]}
+      Root_Ssh_Comment=${Args[Flag_Index+3]}
     fi
   fi
 
@@ -287,8 +291,9 @@ ChangeHostname(){
   Typing "You can ${Y}give the system a name${I}. It helps identify the server and makes it easier to recognize"
   Typing "Current hostname: $(GetCurrentHostname)"
 
-  local index; if index=$(ValidateFlag --hostname 1); then
-    local new=${Args[index+1]}
+  if [[ -n ${Flag_Indexes[--hostname]:-} ]]; then
+    ValidateFlag --hostname 1
+    local new=${Args[Flag_Index+1]}
     if ValidateHostname "$new"; then
       AssertCommandsAvailable hostnamectl || return 1
       AddTodo ChangeHostname "$(GetCurrentHostname)" "$new"
@@ -341,7 +346,10 @@ ChangeTimezone(){
   fi
   Log "Current timezone: "; timedatectl status
 
-  local index; index=$(ValidateFlag --timezone 1) && AddTodo ChangeTimezone "$(GetCurrentTimezone)" "${Args[index+1]}"
+  if [[ -n ${Flag_Indexes[--timezone]:-} ]]; then
+    ValidateFlag --timezone 1
+    AddTodo ChangeTimezone "$(GetCurrentTimezone)" "${Args[Flag_Index+1]}"
+  fi
 
   DoIfInteractive InteractiveChangeTimezone
 }
@@ -393,8 +401,9 @@ ChangeSshPort(){
   Typing "Changing the port will not interrupt this connection until the SSH service restarts"
   Typing "Current SSH port: $(cat /etc/ssh/sshd_config | grep -w Port)"
 
-  local index; if index=$(ValidateFlag --new-port 1); then
-    local new_port=${Args[index+1]}
+  if [[ -n ${Flag_Indexes[--new-port]:-} ]]; then
+    ValidateFlag --new-port 1
+    local new_port=${Args[Flag_Index+1]}
     if CheckIfValidPort "$new_port"; then
       AddTodo ChangeSshPort "$new_port"
     else
@@ -570,7 +579,7 @@ ValidateFlag(){
     Log "Invalid $flag argument: Expecting $([[ $min -eq $max ]] && echo "$min" || echo "$min-$max") values, received $value_count"
     exit 1
   fi
-  echo "$index"
+  Flag_Index=$index
 }
 
 

@@ -275,7 +275,7 @@ SetUp(){
   local hero; if (( ${#users[@]} > 0 )); then
     hero=${users[0]}
   else
-    hero=$USER
+    hero=$User
   fi
   Typing "Trying to log in and disable nuclear recovery timer..."
   if TryLogInDisableTimer "$new_port" "$hero"; then
