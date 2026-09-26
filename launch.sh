@@ -7,7 +7,7 @@ Script_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/helpers.sh
 source "$Script_Dir/lib/helpers.sh"
 
-declare Host User Port Accept_New_Host Timestamp Tmp_Dir Ssh_Socket Remote_Dir
+declare Host User Port Accept_New_Host Sshpass Timestamp Tmp_Dir Ssh_Socket Remote_Dir
 
 Setup_Args=()
 
@@ -30,6 +30,10 @@ Connection options:
     SSH port used to connect to the server
   --accept-new-host
     Automatically accept a new SSH host key for setup and final verification SSH connections
+  --sshpass
+    Use sshpass to provide the password for the initial SSH connection from exported SSHPASS
+    Requires sshpass to be installed and SSHPASS to be set and exported
+    Set it without putting the password in shell history: read -r -s SSHPASS; export SSHPASS
 
 Remote automation options:
   --user [username] [password-hash] [if-sudo (default: true)] [shell (default: bash)] [ssh-key-password (default: "")] [ssh-key-comment (default: username:hostname)]
@@ -110,6 +114,23 @@ Launch(){
 
 AssertLocalDependencies(){
   AssertCommandsAvailable ssh sftp ssh-keygen tar gzip
+  if [[ ${Sshpass:-false} == true ]]; then
+    AssertCommandsAvailable sshpass
+    AssertSshpassEnvironment
+  fi
+}
+
+
+AssertSshpassEnvironment(){
+  if [[ -z ${SSHPASS:-} ]]; then
+    Log -e "SSHPASS must be set when --sshpass is used"
+    return 1
+  fi
+
+  if [[ $(declare -p SSHPASS 2>/dev/null) != "declare -x "* ]]; then
+    Log -e "SSHPASS must be exported when --sshpass is used"
+    return 1
+  fi
 }
 
 
@@ -137,6 +158,10 @@ ParseArgs(){
         ;;
       --accept-new-host)
         Accept_New_Host=true
+        shift
+        ;;
+      --sshpass)
+        Sshpass=true
         shift
         ;;
       --host)
@@ -264,7 +289,7 @@ SetUp(){
 
 
 CreateMasterSshConnection(){
-  local cmds; cmds=(
+  local -a cmds=(
     "ssh"
     "-f" "-M" "-N"
     "-o" "ControlPath=$Ssh_Socket"
@@ -276,6 +301,11 @@ CreateMasterSshConnection(){
   cmds+=(-p "$Port")
   [[ -n "${1:-}" ]] && cmds+=(-i "$1")
   cmds+=("$User@$Host")
+
+  if [[ ${Sshpass:-false} == true ]]; then
+    cmds=(sshpass -e "${cmds[@]}")
+  fi
+
   "${cmds[@]}"
 }
 
@@ -350,15 +380,36 @@ UploadPublicKeys(){
 
 TryLogInDisableTimer(){
   local port=$1 user=$2
+
   local -a keys=("$Tmp_Dir"/*_"$user".key)
   local key=${keys[0]}
-  local cancel_file; cancel_file="$Remote_Dir.cancel"
+
   local -a ssh_args=(-p "$port" -i "$key" -o PasswordAuthentication=no)
   if [[ ${Accept_New_Host:-false} == true ]]; then
     ssh_args+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
   fi
+
+  local use_sshpass=false password
+  if [[ ${Sshpass:-false} == true ]] && SshRunCommand test -f "$Remote_Dir/automated_ssh_passwords"; then
+    local password_record; password_record=$(SshCatFile "$Remote_Dir/automated_ssh_passwords")
+    IFS= read -r password <<< "$password_record"
+    use_sshpass=true
+  fi
+
+  local cancel_file; cancel_file="$Remote_Dir.cancel"
+  local -a commands=(ssh "${ssh_args[@]}" "$user@$Host" "touch '$cancel_file' && [ -f '$cancel_file' ]")
+
   Typing "Trying to log in as '$user' with key at $key..."
-  if ssh "${ssh_args[@]}" "$user@$Host" "touch '$cancel_file' && [ -f '$cancel_file' ]"; then
+  local login_succeeded=false
+  if [[ $use_sshpass == true ]]; then
+    if sshpass -d 3 -P "passphrase for key" "${commands[@]}" 3<<< "$password"; then
+      login_succeeded=true
+    fi
+  elif "${commands[@]}"; then
+    login_succeeded=true
+  fi
+
+  if [[ $login_succeeded == true ]]; then
     Typing "Recovery timer cancellation ordered"
     return 0
   else
