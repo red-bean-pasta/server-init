@@ -457,13 +457,29 @@ DisableRootLogin(){
   Typing "It is safer to ${Y}disable root login${I}, especially while password login is enabled. You can still become root from a normal user with the command \`su\`"
   Typing "Root login can remain enabled when password login is disabled, but using a normal user is still recommended"
 
-  SilentValidateFlag --disable-root && AddTodo DisableRootLogin
+  if SilentValidateFlag --disable-root; then
+    AssertNewUserForDisableRoot
+    AddTodo DisableRootLogin
+  fi
 
   DoIfInteractive InteractiveDisableRootLogin
 }
 
 
+AssertNewUserForDisableRoot(){
+  if (( ${#New_Users[@]} == 0 )); then
+    Log -e "--disable-root requires a new user. Add --user with a new login user"
+    exit 1
+  fi
+}
+
+
 InteractiveDisableRootLogin(){
+  if (( ${#New_Users[@]} == 0 )); then
+    Typing -w "Disabling root login is not allowed when no new user is created. Skipping..."
+    return 0
+  fi
+
   if PromptForYesNo "Disable it? (Y/n): " Y; then
     AddTodo DisableRootLogin
   fi

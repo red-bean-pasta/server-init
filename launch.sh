@@ -30,10 +30,12 @@ Connection options:
     SSH port used to connect to the server
   --accept-new-host
     Automatically accept a new SSH host key for setup and final verification SSH connections
+    WARNING: This disables host-key verification and is not generally recommended
   --sshpass
     Use sshpass to provide the password for the initial SSH connection from exported SSHPASS
     Requires sshpass to be installed and SSHPASS to be set and exported
     Set it without putting the password in shell history: read -r -s SSHPASS; export SSHPASS
+    WARNING: Exported SSHPASS may be visible to other processes and is not generally recommended
 
 Remote automation options:
   --user [username] [password-hash] [if-sudo (default: true)] [shell (default: bash)] [ssh-key-password (default: "")] [ssh-key-comment (default: username:hostname)]
