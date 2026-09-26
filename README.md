@@ -1,63 +1,94 @@
 # server-init
-Lightweight bash scripts help initializing remote Linux servers, with **rollback failsafe** support. It support both CLI-driven **full automation** as well as beginner-friendly **Q&A interaction** setup. **A survey stage** takes place before executing the setup in both modes, to help catching bad configuration early and avoiding midway system corruption. 
+Lightweight Bash scripts for initializing remote Linux servers.
 
 
-# Quickstart
+## Highlights
 
-Only Debian, Ubuntu, AlmaLinux, CentOS, Rocky Linux and Fedora are supported.
+1. A **rollback failsafe** that recovers from failures during setup and helps prevent lockouts
+2. **Fully automated** setup through CLI arguments, or a beginner-friendly **interactive questionnaire**
+3. A **survey and validation phase** that runs before setup to catch invalid configuration early and reduce the risk of partial changes
 
-1. Clone this project to local
+
+## Prerequisites
+
+On the server side, only Debian, Ubuntu, AlmaLinux, CentOS, Rocky Linux, and Fedora are supported.
+
+On the client side, most Linux systems should already have the required dependencies. The script checks for them before setup.
+
+
+## Quick start
+
+### 1. Clone the project
+
+Clone the project to your local machine:
 ```bash
 git clone https://github.com/red-bean-pasta/server-init
 cd server-init
 ```
 
-`server-init` runs on a **local machine** instead of the remote server to hanndle SSH key creation and installing securely.
+> `server-init` runs on your **local machine** and connects to the remote server over SSH.
+> This allows it to create and retain private SSH keys locally.
 
-2. Start
+### 2. Start the setup
 
-A. Run interactively
-Simply pass no arguments
+The initial SSH connection must authenticate as `root`.
+
+#### Run interactively
+
+Run the script without arguments:
 ```bash
 bash launch.sh
 ```
 
-It will first ask about enabling typing effect or not, then prompt for each setup configuration item. No setup is executed during the interaction until the survey is finished and everything is valid.
+The script first asks whether to enable the typing effect, then prompts you for each setup option.
 
-B. Run fully automated
-First, check supported arguments with
+> No changes are applied until the survey is complete and all values have been validated.
+
+#### Run fully automated
+
+First, review the available arguments:
 ```bash
 bash launch.sh -h
 ```
 
-Then pass needed arguments:
+Then pass the required arguments. For example:
 ```bash
-bash launch.sh --host example.com --port 22 --user lily '$y$...' true true bash --new-port 40022 --disable-password --disable-root --update --ufw
+bash launch.sh --host example.com --port 22 --user lily '$y$...' true bash --new-port 40022 --disable-password --disable-root --update --ufw
 ```
 
-Certain steps **may still require manual interaction**, such as SSH password login, SSH key generation and firewall confirmations.
+> Both modes create a persistent SSH connection and upload temporary setup files. These resources are cleaned up automatically.
+
+> Generated private keys are stored locally under `~/.ssh/id_ed25519.d/` as `<hostname>_<user>.key`. The matching public keys are installed on the server.
+
+### 3. Recovery
+
+A 90-second recovery timer starts when setup exits. The timer is canceled after the script verifies that the new login works. If verification fails, the server runs the restore script when the timer expires.
+
+Package upgrades cannot be reversed by the restore script.
+
+> As a last resort, rebuild the server through your cloud provider’s web console.
 
 
 ## Supported tasks
-- Install and enable sudo
-- Add users
-- Install public keys on the server
-- Add private key to local `~/.ssh/`
-- Change root password
-- Change hostname
-- Change timezone
+
+- Install and enable **`sudo`**
+- **Create users**
+- Generate and install **SSH keys**
+- Change the **root password**
+- Change the **hostname**
+- Change the **timezone**
 - Check system time synchronization
-- Enable public key authentication
-- Change SSH port
-- Disable password login
-- Disable root login
-- Update system packages
-- Install firewall: firewalld, ufw or nftables
-- Install fail2ban
-- Automatic recovery
+- Change the **SSH port**
+- Disable **password-based SSH login**
+- Disable **SSH login for `root`**
+- Update **system packages**
+- Install a firewall with **UFW**, **firewalld**, or **nftables**
+- Install **Fail2Ban**
+- **Automatic recovery** after setup failure
 
 
 ## Project history
-- 1.0 – multi-script prototype
-- 2.0 – experimental single-file architecture
-- 3.0 – introduce survey, setup and recovery phases with automatic rollback timer
+
+- 1.0 – Multi-script prototype
+- 2.0 – Experimental single-file architecture
+- 3.0 – Introduced survey, setup, and recovery phases with an automatic rollback timer
